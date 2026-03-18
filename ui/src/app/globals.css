@@ -1,26 +1,81 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #08090a;
+  --foreground: #e2e4e9;
+  --surface: #111316;
+  --surface-2: #181b20;
+  --border: #1e2228;
+  --border-bright: #2a2f38;
+  --accent: #00ff88;
+  --accent-dim: #00cc6a;
+  --accent-glow: rgba(0, 255, 136, 0.08);
+  --danger: #ff3b5c;
+  --warning: #ffaa00;
+  --muted: #6b7280;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-bright: var(--border-bright);
+  --color-accent: var(--accent);
+  --color-accent-dim: var(--accent-dim);
+  --color-accent-glow: var(--accent-glow);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-muted: var(--muted);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-bright);
+  border-radius: 3px;
+}
+
+/* Glow pulse for active status */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.4s ease-out both;
 }
