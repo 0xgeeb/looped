@@ -8,7 +8,7 @@ import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ILendingAdapter} from "./interfaces/ILendingAdapter.sol";
 
-contract LoopedVault is ERC4626, Ownable, ReentrancyGuard {
+contract Looped is ERC4626, Ownable, ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                                 STATE
     //////////////////////////////////////////////////////////////*/
@@ -34,7 +34,7 @@ contract LoopedVault is ERC4626, Ownable, ReentrancyGuard {
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event Looped(uint256 collateral, uint256 debt);
+    event PositionLooped(uint256 collateral, uint256 debt);
     event Delooped(uint256 assetsFreed);
     event Rebalanced();
     event EmergencyDeleveraged();
@@ -130,7 +130,7 @@ contract LoopedVault is ERC4626, Ownable, ReentrancyGuard {
 
         if (adapter.getHealthFactor() < minHealthFactor) revert HealthFactorTooLow();
 
-        emit Looped(adapter.getCollateral(_asset), adapter.getDebt(_asset));
+        emit PositionLooped(adapter.getCollateral(_asset), adapter.getDebt(_asset));
     }
 
     function _deloop(uint256 neededAssets) internal {

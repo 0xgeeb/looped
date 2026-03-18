@@ -2,12 +2,12 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {LoopedVault} from "../src/LoopedVault.sol";
+import {Looped} from "../src/Looped.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockLendingAdapter} from "./mocks/MockLendingAdapter.sol";
 
-contract LoopedVaultTest is Test {
-    LoopedVault public vault;
+contract LoopedTest is Test {
+    Looped public vault;
     MockERC20 public token;
     MockLendingAdapter public adapter;
 
@@ -21,7 +21,7 @@ contract LoopedVaultTest is Test {
         token = new MockERC20("Mock Token", "MTK", 18);
 
         // Deploy vault first with placeholder adapter
-        vault = new LoopedVault(
+        vault = new Looped(
             address(token),
             address(1), // placeholder
             3, // targetLoops
@@ -156,7 +156,7 @@ contract LoopedVaultTest is Test {
         vault.emergencyDeleverage(); // sets paused = true
 
         vm.prank(alice);
-        vm.expectRevert(LoopedVault.Paused.selector);
+        vm.expectRevert(Looped.Paused.selector);
         vault.deposit(1000e18, alice);
     }
 
@@ -187,7 +187,7 @@ contract LoopedVaultTest is Test {
         vault.deposit(1000e18, alice);
 
         vm.prank(alice);
-        vm.expectRevert(LoopedVault.OnlyKeeper.selector);
+        vm.expectRevert(Looped.OnlyKeeper.selector);
         vault.rebalance();
     }
 
@@ -206,7 +206,7 @@ contract LoopedVaultTest is Test {
     }
 
     function test_setTargetLtvMaxCap() public {
-        vm.expectRevert(LoopedVault.InvalidParams.selector);
+        vm.expectRevert(Looped.InvalidParams.selector);
         vault.setTargetLtv(9600);
     }
 }
