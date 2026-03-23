@@ -9,6 +9,8 @@ contract MockLendingAdapter is ILendingAdapter {
     mapping(address => uint256) public collateral;
     mapping(address => uint256) public debt;
     uint256 public maxLtv = 8000; // 80% in bps
+    uint256 public supplyRate = 0.03e18; // 3% APY default
+    uint256 public borrowRate = 0.02e18; // 2% APY default
 
     modifier onlyVault() {
         require(msg.sender == vault, "only vault");
@@ -61,6 +63,22 @@ contract MockLendingAdapter is ILendingAdapter {
 
     function setMaxLtv(uint256 _maxLtv) external {
         maxLtv = _maxLtv;
+    }
+
+    function getSupplyRate(address) external view returns (uint256) {
+        return supplyRate;
+    }
+
+    function getBorrowRate(address) external view returns (uint256) {
+        return borrowRate;
+    }
+
+    function setSupplyRate(uint256 _rate) external {
+        supplyRate = _rate;
+    }
+
+    function setBorrowRate(uint256 _rate) external {
+        borrowRate = _rate;
     }
 
     function simulateYield(address asset, uint256 amount) external {

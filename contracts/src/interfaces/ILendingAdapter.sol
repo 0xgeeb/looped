@@ -11,4 +11,6 @@ interface ILendingAdapter {
     function getDebt(address asset) external view returns (uint256);
     function getHealthFactor() external view returns (uint256);
     function getMaxLtv(address asset) external view returns (uint256);
+    function getSupplyRate(address asset) external view returns (uint256);
+    function getBorrowRate(address asset) external view returns (uint256);
 }
