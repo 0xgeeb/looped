@@ -5,8 +5,8 @@ import Link from "next/link";
 
 // ── Mock vault data (would come from contract reads) ──────────────────
 const VAULT = {
-  asset: "wstETH",
-  assetPrice: 3420.51,
+  asset: "USDC",
+  strategyAsset: "wstETH",
   vaultAddress: "0x7a3b...f41e",
   totalAssets: 2_000_000,
   totalSupply: 1_894_736.842105,
@@ -26,6 +26,7 @@ const VAULT = {
     {
       address: "0x1a2b...3c4d",
       protocol: "Aave v3",
+      strategyAsset: "wstETH",
       weightBps: 6000,
       collateral: 2_414_046,
       debt: 1_214_046,
@@ -36,6 +37,7 @@ const VAULT = {
     {
       address: "0x5e6f...7a8b",
       protocol: "Morpho Blue",
+      strategyAsset: "wstETH",
       weightBps: 4000,
       collateral: 1_609_364,
       debt: 809_364,
@@ -48,11 +50,11 @@ const VAULT = {
 
 const USER = {
   connected: false,
-  balance: 12.847,
-  vaultShares: 4.725,
-  vaultValue: 4.989,
-  depositedValue: 4.8,
-  pnl: 0.189,
+  balance: 5_420.50,
+  vaultShares: 4_725.00,
+  vaultValue: 4_989.23,
+  depositedValue: 4_800.00,
+  pnl: 189.23,
 };
 
 function fmt(n: number, d = 2) {
@@ -99,7 +101,7 @@ export default function VaultPage() {
       <div className="mb-8 animate-fade-in-up">
         <div className="flex items-center gap-3 mb-1">
           <div className="w-10 h-10 rounded-lg bg-surface-2 border border-border-bright flex items-center justify-center">
-            <span className="text-xs font-mono font-bold text-accent">WS</span>
+            <span className="text-xs font-mono font-bold text-accent">$</span>
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -136,7 +138,7 @@ export default function VaultPage() {
                   {fmt(VAULT.sharePrice, 4)}
                 </div>
                 <div className="text-xs text-muted font-mono mt-0.5">
-                  {VAULT.asset} per LOOPED
+                  USDC per LOOPED
                 </div>
               </div>
               <div className="p-5">
@@ -154,9 +156,9 @@ export default function VaultPage() {
 
             <div className="grid grid-cols-4 gap-px bg-border border-t border-border">
               {[
-                { label: "TVL", value: fmtUsd(VAULT.totalAssets * VAULT.assetPrice / 1e6) + "M" },
-                { label: "Collateral", value: fmt(VAULT.collateral) + " " + VAULT.asset },
-                { label: "Debt", value: fmt(VAULT.debt) + " " + VAULT.asset, color: "text-danger" },
+                { label: "TVL", value: fmtUsd(VAULT.totalAssets) },
+                { label: "Collateral", value: fmtUsd(VAULT.collateral) },
+                { label: "Debt", value: fmtUsd(VAULT.debt), color: "text-danger" },
                 {
                   label: "Health Factor",
                   value: fmt(VAULT.healthFactor),
@@ -223,11 +225,11 @@ export default function VaultPage() {
                   <div className="grid grid-cols-4 gap-3">
                     <div className="rounded-lg bg-surface-2 px-3 py-2">
                       <div className="text-[10px] uppercase text-muted tracking-wider mb-0.5">Collateral</div>
-                      <div className="text-sm font-mono font-medium tabular-nums">{fmt(a.collateral)}</div>
+                      <div className="text-sm font-mono font-medium tabular-nums">{fmtUsd(a.collateral)}</div>
                     </div>
                     <div className="rounded-lg bg-surface-2 px-3 py-2">
                       <div className="text-[10px] uppercase text-muted tracking-wider mb-0.5">Debt</div>
-                      <div className="text-sm font-mono font-medium tabular-nums text-danger">{fmt(a.debt)}</div>
+                      <div className="text-sm font-mono font-medium tabular-nums text-danger">{fmtUsd(a.debt)}</div>
                     </div>
                     <div className="rounded-lg bg-surface-2 px-3 py-2">
                       <div className="text-[10px] uppercase text-muted tracking-wider mb-0.5">Health</div>
@@ -280,15 +282,15 @@ export default function VaultPage() {
               {[
                 {
                   step: "01",
-                  text: "You deposit wstETH and receive LOOPED shares",
+                  text: "You deposit USDC and receive LOOPED shares",
                 },
                 {
                   step: "02",
-                  text: "Keeper bot splits your assets across lending adapters by weight and loops each position",
+                  text: "Keeper swaps USDC to wstETH, splits across lending adapters, and loops each position",
                 },
                 {
                   step: "03",
-                  text: "Share price grows as the supply-borrow spread compounds. Withdraw anytime.",
+                  text: "Share price grows as the supply-borrow spread compounds. Withdraw to USDC anytime.",
                 },
               ].map((s) => (
                 <div key={s.step} className="flex items-start gap-3">
@@ -361,19 +363,15 @@ export default function VaultPage() {
                   <div className="flex items-center gap-2 shrink-0">
                     <div className="w-6 h-6 rounded-full bg-surface-3 border border-border-bright flex items-center justify-center">
                       <span className="text-[8px] font-mono font-bold text-accent">
-                        WS
+                        $
                       </span>
                     </div>
                     <span className="text-sm font-medium text-muted">
-                      {VAULT.asset}
+                      USDC
                     </span>
                   </div>
                 </div>
-                {numAmount > 0 && (
-                  <div className="text-xs text-muted font-mono mt-1.5 pl-1">
-                    ≈ {fmtUsd(numAmount * VAULT.assetPrice)}
-                  </div>
-                )}
+                {/* Already in USDC, no conversion needed */}
               </div>
 
               {/* Arrow */}
