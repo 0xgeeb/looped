@@ -54,6 +54,12 @@ export default function RootLayout({
               Strategies
             </Link>
             <Link
+              href="/calculator"
+              className="hover:text-foreground transition-colors"
+            >
+              Calculator
+            </Link>
+            <Link
               href="/why"
               className="hover:text-foreground transition-colors"
             >
