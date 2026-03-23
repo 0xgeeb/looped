@@ -1,7 +1,8 @@
 import express from "express";
+import { config } from "./config.js";
+import { startKeeper, stopKeeper } from "./keeper.js";
 
 const app = express();
-const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
 
@@ -9,6 +10,17 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-app.listen(PORT, () => {
-  console.log(`Looped backend running on port ${PORT}`);
+app.listen(config.port, () => {
+  console.log(`Looped backend running on port ${config.port}`);
+  startKeeper();
+});
+
+process.on("SIGINT", () => {
+  stopKeeper();
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  stopKeeper();
+  process.exit(0);
 });
