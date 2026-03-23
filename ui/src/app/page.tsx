@@ -162,10 +162,10 @@ export default function Dashboard() {
               </div>
             </div>
             <Link
-              href="/calculator"
+              href="/vault"
               className="shrink-0 px-5 py-2.5 rounded-lg bg-accent text-background text-sm font-semibold hover:bg-accent-dim transition-colors"
             >
-              Calculate Returns
+              Deposit Now
             </Link>
           </div>
         </div>
