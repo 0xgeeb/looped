@@ -26,7 +26,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     // Multi-adapter
     ILendingAdapter[] public adapters;
     mapping(ILendingAdapter => bool) public isActiveAdapter;
-    ILendingAdapter public activeAdapter; // current adapter holding the position
+    mapping(ILendingAdapter => uint256) public adapterWeightBps;
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -38,13 +38,14 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     error InvalidParams();
     error AdapterNotRegistered();
     error AdapterAlreadyRegistered();
+    error WeightsMismatch();
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event PositionLooped(uint256 collateral, uint256 debt);
-    event Delooped(uint256 assetsFreed);
+    event PositionLooped(address indexed adapter, uint256 collateral, uint256 debt);
+    event Delooped(address indexed adapter, uint256 assetsFreed);
     event Rebalanced();
     event EmergencyDeleveraged();
     event KeeperUpdated(address indexed newKeeper);
@@ -52,6 +53,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     event AdapterRemoved(address indexed adapter);
     event AdapterMigrated(address indexed from, address indexed to);
     event IdleDeployed(uint256 amount);
+    event WeightsUpdated();
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
@@ -79,9 +81,10 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         uint256 minHealthFactor_
     ) {
         _asset = asset_;
-        activeAdapter = ILendingAdapter(adapter_);
-        adapters.push(ILendingAdapter(adapter_));
-        isActiveAdapter[ILendingAdapter(adapter_)] = true;
+        ILendingAdapter a = ILendingAdapter(adapter_);
+        adapters.push(a);
+        isActiveAdapter[a] = true;
+        adapterWeightBps[a] = 10000; // 100% to initial adapter
         targetLoops = targetLoops_;
         targetLtv = targetLtv_;
         minHealthFactor = minHealthFactor_;
@@ -113,9 +116,15 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
     function totalAssets() public view override returns (uint256) {
         uint256 idle = ERC20(_asset).balanceOf(address(this));
-        uint256 col = activeAdapter.getCollateral(_asset);
-        uint256 dbt = activeAdapter.getDebt(_asset);
-        return idle + col - dbt;
+        uint256 net = idle;
+        for (uint256 i = 0; i < adapters.length; i++) {
+            if (adapterWeightBps[adapters[i]] == 0) continue;
+            if (address(adapters[i]).code.length == 0) continue;
+            uint256 col = adapters[i].getCollateral(_asset);
+            uint256 dbt = adapters[i].getDebt(_asset);
+            net += col - dbt;
+        }
+        return net;
     }
 
     /// @dev Deposits land idle — keeper deploys excess via deployIdle()
@@ -123,8 +132,55 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
     function _beforeWithdraw(uint256 assets, uint256) internal override nonReentrant whenNotPaused {
         uint256 idle = ERC20(_asset).balanceOf(address(this));
-        if (idle < assets) {
-            _deloop(assets - idle);
+        if (idle >= assets) return;
+
+        uint256 needed = assets - idle;
+        // Deloop from worst-rate adapter first
+        uint256 len = adapters.length;
+        if (len == 1) {
+            _deloop(needed, adapters[0]);
+            return;
+        }
+
+        // Build sorted order by net rate ascending (worst first)
+        uint256[] memory indices = new uint256[](len);
+        int256[] memory rates = new int256[](len);
+        uint256 active = 0;
+        for (uint256 i = 0; i < len; i++) {
+            if (adapterWeightBps[adapters[i]] == 0) continue;
+            uint256 dbt = adapters[i].getDebt(_asset);
+            if (dbt == 0 && adapters[i].getCollateral(_asset) == 0) continue;
+            indices[active] = i;
+            uint256 sr = adapters[i].getSupplyRate(_asset);
+            uint256 br = adapters[i].getBorrowRate(_asset);
+            rates[active] = int256(sr) - int256(br);
+            active++;
+        }
+
+        // Simple insertion sort (small array)
+        for (uint256 i = 1; i < active; i++) {
+            int256 key = rates[i];
+            uint256 keyIdx = indices[i];
+            uint256 j = i;
+            while (j > 0 && rates[j - 1] > key) {
+                rates[j] = rates[j - 1];
+                indices[j] = indices[j - 1];
+                j--;
+            }
+            rates[j] = key;
+            indices[j] = keyIdx;
+        }
+
+        // Deloop from worst rate first
+        for (uint256 i = 0; i < active && needed > 0; i++) {
+            ILendingAdapter adp = adapters[indices[i]];
+            uint256 col = adp.getCollateral(_asset);
+            uint256 dbt = adp.getDebt(_asset);
+            if (col <= dbt) continue;
+            uint256 available = col - dbt;
+            uint256 toFree = needed < available ? needed : available;
+            _deloop(toFree, adp);
+            needed -= toFree;
         }
     }
 
@@ -133,7 +189,6 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     function previewWithdraw(uint256 assets) public view override returns (uint256 shares) {
-        // User wants `assets` out — vault must free assets + fee
         uint256 grossAssets = withdrawalFeeBps > 0
             ? (assets * 10000 + 10000 - withdrawalFeeBps - 1) / (10000 - withdrawalFeeBps)
             : assets;
@@ -149,68 +204,73 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
                             LOOP / DELOOP
     //////////////////////////////////////////////////////////////*/
 
-    function _loop(uint256 amount) internal {
-        SafeTransferLib.safeApprove(_asset, address(activeAdapter), amount);
-        activeAdapter.supply(_asset, amount);
+    function _loop(uint256 amount, ILendingAdapter adapter) internal {
+        SafeTransferLib.safeApprove(_asset, address(adapter), amount);
+        adapter.supply(_asset, amount);
 
         for (uint8 i = 0; i < targetLoops; i++) {
-            uint256 col = activeAdapter.getCollateral(_asset);
-            uint256 dbt = activeAdapter.getDebt(_asset);
+            uint256 col = adapter.getCollateral(_asset);
+            uint256 dbt = adapter.getDebt(_asset);
             uint256 borrowAmt = (col * targetLtv / 10000) - dbt;
             if (borrowAmt == 0) break;
 
-            activeAdapter.borrow(_asset, borrowAmt);
+            adapter.borrow(_asset, borrowAmt);
 
-            SafeTransferLib.safeApprove(_asset, address(activeAdapter), borrowAmt);
-            activeAdapter.supply(_asset, borrowAmt);
+            SafeTransferLib.safeApprove(_asset, address(adapter), borrowAmt);
+            adapter.supply(_asset, borrowAmt);
         }
 
-        if (activeAdapter.getHealthFactor() < minHealthFactor) revert HealthFactorTooLow();
+        if (adapter.getHealthFactor() < minHealthFactor) revert HealthFactorTooLow();
 
-        emit PositionLooped(activeAdapter.getCollateral(_asset), activeAdapter.getDebt(_asset));
+        emit PositionLooped(address(adapter), adapter.getCollateral(_asset), adapter.getDebt(_asset));
     }
 
-    function _deloop(uint256 neededAssets) internal {
+    function _deloop(uint256 neededAssets, ILendingAdapter adapter) internal {
         uint256 freed = 0;
 
         while (freed < neededAssets) {
-            uint256 col = activeAdapter.getCollateral(_asset);
-            uint256 dbt = activeAdapter.getDebt(_asset);
-            uint256 maxLtv = activeAdapter.getMaxLtv(_asset);
+            uint256 col = adapter.getCollateral(_asset);
+            uint256 dbt = adapter.getDebt(_asset);
+            uint256 maxLtv = adapter.getMaxLtv(_asset);
 
-            // Max we can withdraw without violating LTV
             uint256 minCollateral = maxLtv > 0 ? (dbt * 10000) / maxLtv : 0;
             uint256 maxWithdrawable = col > minCollateral ? col - minCollateral : 0;
 
             if (maxWithdrawable == 0) break;
 
             uint256 toWithdraw = maxWithdrawable < (neededAssets - freed) ? maxWithdrawable : (neededAssets - freed);
-            activeAdapter.withdraw(_asset, toWithdraw);
+            adapter.withdraw(_asset, toWithdraw);
 
-            // Repay debt with withdrawn assets if we have debt
             if (dbt > 0) {
                 uint256 repayAmt = toWithdraw < dbt ? toWithdraw : dbt;
-                SafeTransferLib.safeApprove(_asset, address(activeAdapter), repayAmt);
-                activeAdapter.repay(_asset, repayAmt);
+                SafeTransferLib.safeApprove(_asset, address(adapter), repayAmt);
+                adapter.repay(_asset, repayAmt);
                 freed += toWithdraw - repayAmt;
             } else {
                 freed += toWithdraw;
             }
         }
 
-        emit Delooped(freed);
+        emit Delooped(address(adapter), freed);
     }
 
-    function _deloopAll() internal {
-        uint256 dbt = activeAdapter.getDebt(_asset);
+    function _deloopAll(ILendingAdapter adapter) internal {
+        uint256 dbt = adapter.getDebt(_asset);
         if (dbt > 0) {
-            uint256 col = activeAdapter.getCollateral(_asset);
-            _deloop(col - dbt);
+            uint256 col = adapter.getCollateral(_asset);
+            _deloop(col - dbt, adapter);
         }
-        // Withdraw any remaining collateral
-        uint256 remainingCol = activeAdapter.getCollateral(_asset);
+        uint256 remainingCol = adapter.getCollateral(_asset);
         if (remainingCol > 0) {
-            activeAdapter.withdraw(_asset, remainingCol);
+            adapter.withdraw(_asset, remainingCol);
+        }
+    }
+
+    function _deloopAllAdapters() internal {
+        for (uint256 i = 0; i < adapters.length; i++) {
+            if (adapterWeightBps[adapters[i]] == 0) continue;
+            if (adapters[i].getCollateral(_asset) == 0 && adapters[i].getDebt(_asset) == 0) continue;
+            _deloopAll(adapters[i]);
         }
     }
 
@@ -225,22 +285,49 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         if (idle <= bufferTarget) return;
 
         uint256 deployable = idle - bufferTarget;
-        _loop(deployable);
+        _deployByWeight(deployable);
 
         emit IdleDeployed(deployable);
     }
 
-    function rebalance() external onlyKeeper nonReentrant whenNotPaused {
-        // Deloop everything first
-        _deloopAll();
+    function _deployByWeight(uint256 amount) internal {
+        uint256 deployed = 0;
+        uint256 len = adapters.length;
+        uint256 lastActive = type(uint256).max;
 
-        // Re-loop with current params, respecting buffer
+        // Find last adapter with weight > 0 (gets remainder to avoid dust)
+        for (uint256 i = 0; i < len; i++) {
+            if (adapterWeightBps[adapters[i]] > 0) lastActive = i;
+        }
+        if (lastActive == type(uint256).max) return;
+
+        for (uint256 i = 0; i < len; i++) {
+            uint256 w = adapterWeightBps[adapters[i]];
+            if (w == 0) continue;
+
+            uint256 share;
+            if (i == lastActive) {
+                share = amount - deployed; // remainder
+            } else {
+                share = amount * w / 10000;
+            }
+
+            if (share > 0) {
+                _loop(share, adapters[i]);
+                deployed += share;
+            }
+        }
+    }
+
+    function rebalance() external onlyKeeper nonReentrant whenNotPaused {
+        _deloopAllAdapters();
+
         uint256 idle = ERC20(_asset).balanceOf(address(this));
         uint256 bufferTarget = idle * targetBuffer / 10000;
         uint256 deployable = idle > bufferTarget ? idle - bufferTarget : 0;
 
         if (deployable > 0) {
-            _loop(deployable);
+            _deployByWeight(deployable);
         }
 
         emit Rebalanced();
@@ -248,49 +335,60 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
     function migrateAdapter(ILendingAdapter from, ILendingAdapter to) external onlyKeeper nonReentrant whenNotPaused {
         if (!isActiveAdapter[from] || !isActiveAdapter[to]) revert AdapterNotRegistered();
-        if (address(activeAdapter) != address(from)) revert InvalidParams();
 
-        // Deloop entire position on current adapter
-        _deloopAll();
+        uint256 fromWeight = adapterWeightBps[from];
+        if (fromWeight == 0) revert InvalidParams();
 
-        // Switch adapter
-        activeAdapter = to;
+        // Deloop the source adapter
+        _deloopAll(from);
 
-        // Loop on new adapter, respecting buffer
+        // Transfer weight
+        adapterWeightBps[from] = 0;
+        adapterWeightBps[to] += fromWeight;
+
+        // Deploy freed capital into target
         uint256 idle = ERC20(_asset).balanceOf(address(this));
-        uint256 bufferTarget = idle * targetBuffer / 10000;
+        uint256 total = totalAssets();
+        uint256 bufferTarget = total * targetBuffer / 10000;
         uint256 deployable = idle > bufferTarget ? idle - bufferTarget : 0;
 
         if (deployable > 0) {
-            _loop(deployable);
+            // Only loop into the target adapter with its proportional share
+            uint256 toShare = deployable * adapterWeightBps[to] / 10000;
+            if (toShare > 0) {
+                _loop(toShare, to);
+            }
         }
 
         emit AdapterMigrated(address(from), address(to));
     }
 
     function emergencyDeleverage() external onlyOwner nonReentrant {
-        uint256 dbt = activeAdapter.getDebt(_asset);
-        while (dbt > 0) {
-            uint256 col = activeAdapter.getCollateral(_asset);
-            uint256 maxLtv = activeAdapter.getMaxLtv(_asset);
-            uint256 minCollateral = maxLtv > 0 ? (dbt * 10000) / maxLtv : 0;
-            uint256 maxWithdrawable = col > minCollateral ? col - minCollateral : 0;
+        for (uint256 i = 0; i < adapters.length; i++) {
+            ILendingAdapter adapter = adapters[i];
+            if (address(adapter).code.length == 0) continue;
+            uint256 dbt = adapter.getDebt(_asset);
+            while (dbt > 0) {
+                uint256 col = adapter.getCollateral(_asset);
+                uint256 maxLtv = adapter.getMaxLtv(_asset);
+                uint256 minCollateral = maxLtv > 0 ? (dbt * 10000) / maxLtv : 0;
+                uint256 maxWithdrawable = col > minCollateral ? col - minCollateral : 0;
 
-            if (maxWithdrawable == 0) break;
+                if (maxWithdrawable == 0) break;
 
-            activeAdapter.withdraw(_asset, maxWithdrawable);
+                adapter.withdraw(_asset, maxWithdrawable);
 
-            uint256 repayAmt = maxWithdrawable < dbt ? maxWithdrawable : dbt;
-            SafeTransferLib.safeApprove(_asset, address(activeAdapter), repayAmt);
-            activeAdapter.repay(_asset, repayAmt);
+                uint256 repayAmt = maxWithdrawable < dbt ? maxWithdrawable : dbt;
+                SafeTransferLib.safeApprove(_asset, address(adapter), repayAmt);
+                adapter.repay(_asset, repayAmt);
 
-            dbt = activeAdapter.getDebt(_asset);
-        }
+                dbt = adapter.getDebt(_asset);
+            }
 
-        // Withdraw remaining collateral
-        uint256 remainingCol = activeAdapter.getCollateral(_asset);
-        if (remainingCol > 0) {
-            activeAdapter.withdraw(_asset, remainingCol);
+            uint256 remainingCol = adapter.getCollateral(_asset);
+            if (remainingCol > 0) {
+                adapter.withdraw(_asset, remainingCol);
+            }
         }
 
         paused = true;
@@ -306,15 +404,17 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         if (isActiveAdapter[a]) revert AdapterAlreadyRegistered();
         adapters.push(a);
         isActiveAdapter[a] = true;
+        // Weight starts at 0 — owner must call setAdapterWeights
         emit AdapterAdded(_adapter);
     }
 
     function removeAdapter(address _adapter) external onlyOwner {
         ILendingAdapter a = ILendingAdapter(_adapter);
         if (!isActiveAdapter[a]) revert AdapterNotRegistered();
-        if (address(activeAdapter) == _adapter) revert InvalidParams();
+        if (adapterWeightBps[a] > 0) revert InvalidParams(); // must zero weight first
+        if (a.getCollateral(_asset) > 0 || a.getDebt(_asset) > 0) revert InvalidParams(); // must be empty
+
         isActiveAdapter[a] = false;
-        // Remove from array
         for (uint256 i = 0; i < adapters.length; i++) {
             if (address(adapters[i]) == _adapter) {
                 adapters[i] = adapters[adapters.length - 1];
@@ -325,8 +425,42 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         emit AdapterRemoved(_adapter);
     }
 
+    function setAdapterWeights(
+        ILendingAdapter[] calldata _adapters,
+        uint256[] calldata _weights
+    ) external onlyOwner {
+        if (_adapters.length != _weights.length) revert WeightsMismatch();
+
+        // Zero all weights first
+        for (uint256 i = 0; i < adapters.length; i++) {
+            adapterWeightBps[adapters[i]] = 0;
+        }
+
+        // Set new weights and validate
+        uint256 totalWeight = 0;
+        for (uint256 i = 0; i < _adapters.length; i++) {
+            if (!isActiveAdapter[_adapters[i]]) revert AdapterNotRegistered();
+            adapterWeightBps[_adapters[i]] = _weights[i];
+            totalWeight += _weights[i];
+        }
+
+        if (totalWeight != 10000) revert InvalidParams();
+
+        emit WeightsUpdated();
+    }
+
     function getAdapters() external view returns (ILendingAdapter[] memory) {
         return adapters;
+    }
+
+    function getAdapterPosition(ILendingAdapter adapter) external view returns (
+        uint256 col,
+        uint256 dbt,
+        uint256 weightBps
+    ) {
+        col = adapter.getCollateral(_asset);
+        dbt = adapter.getDebt(_asset);
+        weightBps = adapterWeightBps[adapter];
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -349,14 +483,6 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     function setKeeper(address _keeper) external onlyOwner {
         keeper = _keeper;
         emit KeeperUpdated(_keeper);
-    }
-
-    function setAdapter(address _adapter) external onlyOwner {
-        activeAdapter = ILendingAdapter(_adapter);
-        if (!isActiveAdapter[activeAdapter]) {
-            adapters.push(activeAdapter);
-            isActiveAdapter[activeAdapter] = true;
-        }
     }
 
     function setTargetBuffer(uint256 _targetBuffer) external onlyOwner {

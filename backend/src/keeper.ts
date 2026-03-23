@@ -17,12 +17,14 @@ const vaultAbi = parseAbi([
   "function rebalanceTriggerHF() view returns (uint256)",
   "function minHealthFactor() view returns (uint256)",
   "function paused() view returns (bool)",
-  "function activeAdapter() view returns (address)",
   "function getAdapters() view returns (address[])",
+  "function getAdapterPosition(address) view returns (uint256 collateral, uint256 debt, uint256 weightBps)",
+  "function adapterWeightBps(address) view returns (uint256)",
   "function asset() view returns (address)",
   "function deployIdle()",
   "function rebalance()",
   "function migrateAdapter(address from, address to)",
+  "function setAdapterWeights(address[], uint256[])",
 ]);
 
 const adapterAbi = parseAbi([
@@ -75,6 +77,20 @@ const readAdapter = (adapterAddr: Address, functionName: any, args?: any[]) =>
     args: args as any, // eslint-disable-line @typescript-eslint/no-explicit-any
   });
 
+// ─── Helpers ────────────────────────────────────────────────
+
+const getActiveAdapters = async (): Promise<{ address: Address; weight: bigint }[]> => {
+  const allAdapters = await readVault("getAdapters") as Address[];
+  const results: { address: Address; weight: bigint }[] = [];
+  for (const addr of allAdapters) {
+    const weight = await readVault("adapterWeightBps", [addr]) as bigint;
+    if (weight > 0n) {
+      results.push({ address: addr, weight });
+    }
+  }
+  return results;
+};
+
 // ─── Transactions ────────────────────────────────────────────
 
 const executeDeployIdle = async () => {
@@ -126,6 +142,23 @@ const executeMigration = async (from: Address, to: Address) => {
   }
 };
 
+const executeSetWeights = async (adapters: Address[], weights: bigint[]) => {
+  try {
+    const hash = await walletClient.writeContract({
+      chain: mainnet,
+      address: vault,
+      abi: vaultAbi,
+      functionName: "setAdapterWeights",
+      args: [adapters, weights],
+    });
+    console.log(`[keeper:tx] setAdapterWeights sent: ${hash}`);
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    console.log(`[keeper:tx] setAdapterWeights confirmed in block ${receipt.blockNumber}`);
+  } catch (err) {
+    console.error("[keeper:tx] setAdapterWeights failed:", err);
+  }
+};
+
 // ─── Jobs ────────────────────────────────────────────────────
 
 const checkHealthFactor = async () => {
@@ -135,24 +168,31 @@ const checkHealthFactor = async () => {
     return;
   }
 
-  const adapterAddr = await readVault("activeAdapter") as Address;
-  const hf = await readAdapter(adapterAddr, "getHealthFactor") as bigint;
+  const adapters = await getActiveAdapters();
   const triggerHF = await readVault("rebalanceTriggerHF") as bigint;
   const minHF = await readVault("minHealthFactor") as bigint;
 
-  console.log(`[keeper:health] HF: ${formatEther(hf)} | trigger: ${formatEther(triggerHF)} | min: ${formatEther(minHF)}`);
+  for (const { address: adapterAddr, weight } of adapters) {
+    try {
+      const hf = await readAdapter(adapterAddr, "getHealthFactor") as bigint;
+      console.log(
+        `[keeper:health] adapter ${adapterAddr} (${weight} bps) HF: ${formatEther(hf)} | trigger: ${formatEther(triggerHF)} | min: ${formatEther(minHF)}`
+      );
 
-  // Emergency zone
-  if (hf < minHF * 110n / 100n && hf < triggerHF) {
-    console.log("[keeper:health] CRITICAL — HF near minimum, triggering rebalance");
-    await executeRebalance();
-    return;
-  }
+      if (hf < minHF * 110n / 100n && hf < triggerHF) {
+        console.log(`[keeper:health] CRITICAL — adapter ${adapterAddr} HF near minimum, triggering rebalance`);
+        await executeRebalance();
+        return; // rebalance handles all adapters
+      }
 
-  // Below trigger
-  if (hf < triggerHF) {
-    console.log("[keeper:health] HF below trigger, rebalancing");
-    await executeRebalance();
+      if (hf < triggerHF) {
+        console.log(`[keeper:health] adapter ${adapterAddr} HF below trigger, rebalancing`);
+        await executeRebalance();
+        return;
+      }
+    } catch {
+      console.log(`[keeper:health] adapter ${adapterAddr} health check failed, skipping`);
+    }
   }
 };
 
@@ -180,7 +220,6 @@ const checkAndDeployIdle = async () => {
     `[keeper:idle] idle: ${formatEther(idle)} | buffer target: ${formatEther(bufferTarget)} | idle ratio: ${idleRatio} bps`
   );
 
-  // Deploy if idle exceeds 150% of buffer target
   const thresholdBps = BigInt(config.idleDeployThresholdBps);
   if (idle > bufferTarget && idleRatio > targetBufferBps * thresholdBps / 10000n) {
     console.log("[keeper:idle] deploying excess idle");
@@ -212,37 +251,97 @@ const checkRateOptimization = async () => {
   }
 
   const asset = await readVault("asset") as Address;
-  const activeAdapterAddr = await readVault("activeAdapter") as Address;
+  const adapters = await getActiveAdapters();
   const allAdapters = await readVault("getAdapters") as Address[];
 
   if (allAdapters.length < 2) return;
 
-  const currentNet = await getNetRate(activeAdapterAddr, asset);
-  console.log(`[keeper:rates] current adapter ${activeAdapterAddr} net rate: ${currentNet}`);
-
-  let bestAdapter = activeAdapterAddr;
-  let bestNet = currentNet;
-
+  // Get rates for all registered adapters (including zero-weight ones)
+  const rateMap = new Map<Address, bigint>();
   for (const addr of allAdapters) {
-    if (addr === activeAdapterAddr) continue;
     try {
       const net = await getNetRate(addr, asset);
+      rateMap.set(addr, net);
       console.log(`[keeper:rates] adapter ${addr} net rate: ${net}`);
-      if (net > bestNet) {
-        bestNet = net;
-        bestAdapter = addr;
-      }
     } catch {
       console.log(`[keeper:rates] adapter ${addr} rate check failed, skipping`);
     }
   }
 
-  const improvementBps = bestNet - currentNet;
-  if (bestAdapter !== activeAdapterAddr && improvementBps > BigInt(config.rateImprovementThresholdBps)) {
-    console.log(`[keeper:rates] migrating to ${bestAdapter} (improvement: ${improvementBps} bps)`);
-    await executeMigration(activeAdapterAddr, bestAdapter);
-    lastMigrationTime = Date.now();
+  // Find the best adapter
+  let bestAdapter: Address | null = null;
+  let bestRate = -Infinity;
+  for (const [addr, rate] of rateMap) {
+    const rateNum = Number(rate);
+    if (rateNum > bestRate) {
+      bestRate = rateNum;
+      bestAdapter = addr;
+    }
   }
+
+  if (!bestAdapter) return;
+
+  // Check if shifting weight toward best adapter is worthwhile
+  const currentBestWeight = adapters.find(a => a.address === bestAdapter)?.weight ?? 0n;
+
+  // If best adapter already has most weight, skip
+  if (currentBestWeight >= 8000n) return;
+
+  // Find worst-performing active adapter
+  let worstAdapter: Address | null = null;
+  let worstRate = Infinity;
+  for (const { address: addr } of adapters) {
+    const rate = rateMap.get(addr);
+    if (rate === undefined) continue;
+    const rateNum = Number(rate);
+    if (rateNum < worstRate) {
+      worstRate = rateNum;
+      worstAdapter = addr;
+    }
+  }
+
+  if (!worstAdapter || worstAdapter === bestAdapter) return;
+
+  const improvement = BigInt(Math.floor(bestRate)) - BigInt(Math.floor(worstRate));
+  if (improvement <= BigInt(config.rateImprovementThresholdBps)) return;
+
+  // Gradual shift: move 20% of worst adapter's weight to best
+  const shiftBps = 2000n;
+  const worstWeight = adapters.find(a => a.address === worstAdapter)?.weight ?? 0n;
+  const shift = worstWeight * shiftBps / 10000n;
+
+  if (shift === 0n) return;
+
+  console.log(`[keeper:rates] shifting ${shift} bps from ${worstAdapter} to ${bestAdapter}`);
+
+  // Build new weights
+  const newAdapters: Address[] = [];
+  const newWeights: bigint[] = [];
+  for (const { address: addr, weight } of adapters) {
+    newAdapters.push(addr);
+    if (addr === worstAdapter) {
+      newWeights.push(weight - shift);
+    } else if (addr === bestAdapter) {
+      newWeights.push(weight + shift);
+    } else {
+      newWeights.push(weight);
+    }
+  }
+
+  // If best adapter isn't active yet, add it
+  if (!adapters.find(a => a.address === bestAdapter)) {
+    newAdapters.push(bestAdapter);
+    newWeights.push(shift);
+    // Adjust worst adapter
+    const worstIdx = newAdapters.indexOf(worstAdapter!);
+    if (worstIdx >= 0) {
+      newWeights[worstIdx] = worstWeight - shift;
+    }
+  }
+
+  await executeSetWeights(newAdapters, newWeights);
+  await executeRebalance();
+  lastMigrationTime = Date.now();
 };
 
 // ─── Scheduling ──────────────────────────────────────────────

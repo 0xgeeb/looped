@@ -18,7 +18,8 @@ const VAULTS = [
     apy: "8.74%",
     leverage: "2.01x",
     health: "1.42",
-    protocol: "Aave v3",
+    adapters: 2,
+    protocols: "Aave v3 + Morpho",
     change24h: "+0.12%",
   },
   {
@@ -27,7 +28,8 @@ const VAULTS = [
     apy: "12.31%",
     leverage: "2.89x",
     health: "1.18",
-    protocol: "Aave v3",
+    adapters: 1,
+    protocols: "Aave v3",
     change24h: "+0.08%",
   },
 ];
@@ -118,7 +120,7 @@ export default function Dashboard() {
                     <div>
                       <div className="font-semibold">{vault.asset}</div>
                       <div className="text-xs text-muted font-mono">
-                        {vault.protocol}
+                        {vault.protocols}
                       </div>
                     </div>
                   </div>

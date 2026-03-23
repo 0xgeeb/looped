@@ -18,11 +18,32 @@ const VAULT = {
   targetLoops: 3,
   targetBuffer: 5,
   withdrawalFee: 0.05,
-  protocol: "Aave v3",
   chain: "Base",
   idleBuffer: 100_000,
   collateral: 4_023_410,
   debt: 2_023_410,
+  adapters: [
+    {
+      address: "0x1a2b...3c4d",
+      protocol: "Aave v3",
+      weightBps: 6000,
+      collateral: 2_414_046,
+      debt: 1_214_046,
+      healthFactor: 1.45,
+      supplyRate: 3.21,
+      borrowRate: 1.89,
+    },
+    {
+      address: "0x5e6f...7a8b",
+      protocol: "Morpho Blue",
+      weightBps: 4000,
+      collateral: 1_609_364,
+      debt: 809_364,
+      healthFactor: 1.38,
+      supplyRate: 3.84,
+      borrowRate: 2.12,
+    },
+  ],
 };
 
 const USER = {
@@ -92,7 +113,7 @@ export default function VaultPage() {
             <div className="flex items-center gap-3 text-xs text-muted mt-0.5">
               <span className="font-mono">{VAULT.vaultAddress}</span>
               <span>&middot;</span>
-              <span>{VAULT.protocol}</span>
+              <span>{VAULT.adapters.length} adapters</span>
             </div>
           </div>
         </div>
@@ -156,10 +177,76 @@ export default function VaultPage() {
             </div>
           </div>
 
+          {/* Adapter Allocation */}
+          <div
+            className="rounded-xl bg-surface border border-border overflow-hidden animate-fade-in-up"
+            style={{ animationDelay: "120ms" }}
+          >
+            <div className="px-5 py-3 border-b border-border">
+              <h3 className="text-sm font-medium text-muted uppercase tracking-wider">
+                Adapter Allocation
+              </h3>
+            </div>
+
+            {/* Weight bar */}
+            <div className="px-5 pt-4 pb-3">
+              <div className="flex h-2 rounded-full overflow-hidden bg-surface-2">
+                {VAULT.adapters.map((a, i) => (
+                  <div
+                    key={a.address}
+                    className={`h-full ${i === 0 ? "bg-accent" : "bg-warning"}`}
+                    style={{ width: `${a.weightBps / 100}%` }}
+                  />
+                ))}
+              </div>
+              <div className="flex justify-between mt-1.5">
+                {VAULT.adapters.map((a, i) => (
+                  <span key={a.address} className={`text-[10px] font-mono ${i === 0 ? "text-accent" : "text-warning"}`}>
+                    {a.protocol} {a.weightBps / 100}%
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Per-adapter cards */}
+            <div className="divide-y divide-border">
+              {VAULT.adapters.map((a, i) => (
+                <div key={a.address} className="px-5 py-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${i === 0 ? "bg-accent" : "bg-warning"}`} />
+                      <span className="text-sm font-medium">{a.protocol}</span>
+                      <span className="text-[10px] font-mono text-muted">{a.address}</span>
+                    </div>
+                    <span className="text-xs font-mono font-medium">{a.weightBps / 100}%</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-3">
+                    <div className="rounded-lg bg-surface-2 px-3 py-2">
+                      <div className="text-[10px] uppercase text-muted tracking-wider mb-0.5">Collateral</div>
+                      <div className="text-sm font-mono font-medium tabular-nums">{fmt(a.collateral)}</div>
+                    </div>
+                    <div className="rounded-lg bg-surface-2 px-3 py-2">
+                      <div className="text-[10px] uppercase text-muted tracking-wider mb-0.5">Debt</div>
+                      <div className="text-sm font-mono font-medium tabular-nums text-danger">{fmt(a.debt)}</div>
+                    </div>
+                    <div className="rounded-lg bg-surface-2 px-3 py-2">
+                      <div className="text-[10px] uppercase text-muted tracking-wider mb-0.5">Health</div>
+                      <div className={`text-sm font-mono font-medium tabular-nums ${healthColor(a.healthFactor)}`}>{fmt(a.healthFactor)}</div>
+                    </div>
+                    <div className="rounded-lg bg-surface-2 px-3 py-2">
+                      <div className="text-[10px] uppercase text-muted tracking-wider mb-0.5">Net Rate</div>
+                      <div className="text-sm font-mono font-medium tabular-nums text-accent">{fmt(a.supplyRate - a.borrowRate)}%</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* Strategy Params */}
           <div
             className="rounded-xl bg-surface border border-border p-5 animate-fade-in-up"
-            style={{ animationDelay: "120ms" }}
+            style={{ animationDelay: "180ms" }}
           >
             <h3 className="text-sm font-medium text-muted uppercase tracking-wider mb-4">
               Strategy Parameters
@@ -170,7 +257,7 @@ export default function VaultPage() {
                 { label: "Loop Count", value: `${VAULT.targetLoops}x` },
                 { label: "Idle Buffer", value: `${VAULT.targetBuffer}%` },
                 { label: "Withdrawal Fee", value: `${VAULT.withdrawalFee}%` },
-                { label: "Protocol", value: VAULT.protocol },
+                { label: "Adapters", value: `${VAULT.adapters.length}` },
                 { label: "Chain", value: VAULT.chain },
               ].map((p) => (
                 <div key={p.label} className="flex justify-between items-center py-2 border-b border-border last:border-b-0">
@@ -197,7 +284,7 @@ export default function VaultPage() {
                 },
                 {
                   step: "02",
-                  text: "Keeper bot deploys your assets into a leveraged looping position via Aave v3",
+                  text: "Keeper bot splits your assets across lending adapters by weight and loops each position",
                 },
                 {
                   step: "03",
