@@ -53,6 +53,12 @@ export default function RootLayout({
             >
               Strategies
             </Link>
+            <Link
+              href="/why"
+              className="hover:text-foreground transition-colors"
+            >
+              Why Looped?
+            </Link>
           </div>
         </nav>
         <main className="flex-1">{children}</main>
