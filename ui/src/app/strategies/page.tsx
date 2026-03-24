@@ -26,91 +26,88 @@ const MOCK_EVENTS: StrategyEvent[] = [
     id: "1",
     type: "loop",
     timestamp: "2026-03-18T14:32:00Z",
-    asset: "wstETH",
-    details: "Entered 3x loop at 70% LTV",
+    asset: "Aave v3",
+    details: "Deployed idle USDC — 3x loop at 70% LTV",
     txHash: "0x8a2f...3e71",
-    collateralDelta: "+2,533.41",
-    debtDelta: "+1,533.41",
+    collateralDelta: "+$253,410",
+    debtDelta: "+$153,410",
   },
   {
     id: "2",
     type: "rebalance",
     timestamp: "2026-03-18T12:15:00Z",
-    asset: "cbETH",
-    details: "Rebalanced to target 65% LTV",
+    asset: "Morpho Blue",
+    details: "Rebalanced to target 70% LTV",
     txHash: "0x1b4c...9f02",
-    collateralDelta: "-120.5",
-    debtDelta: "-185.2",
+    collateralDelta: "-$12,050",
+    debtDelta: "-$18,520",
   },
   {
     id: "3",
     type: "loop",
     timestamp: "2026-03-18T09:44:00Z",
-    asset: "wstETH",
-    details: "Entered 2x loop at 70% LTV",
+    asset: "Morpho Blue",
+    details: "Deployed idle USDC — 2x loop at 70% LTV",
     txHash: "0x3d7e...a1b8",
-    collateralDelta: "+1,490.00",
-    debtDelta: "+490.00",
+    collateralDelta: "+$149,000",
+    debtDelta: "+$49,000",
   },
   {
     id: "4",
     type: "deposit",
     timestamp: "2026-03-17T22:10:00Z",
-    asset: "cbETH",
-    details: "New deposit processed, looped 3x",
+    asset: "Vault",
+    details: "New deposit processed — 50,000 USDC",
     txHash: "0xf29a...5c43",
-    collateralDelta: "+3,200.00",
-    debtDelta: "+2,200.00",
+    collateralDelta: "+$50,000",
   },
   {
     id: "5",
     type: "withdraw",
     timestamp: "2026-03-17T18:33:00Z",
-    asset: "wstETH",
-    details: "Partial withdrawal, delooped 1 iteration",
+    asset: "Vault",
+    details: "Partial withdrawal — delooped 1 iteration",
     txHash: "0x6e8d...7b19",
-    collateralDelta: "-800.00",
-    debtDelta: "-550.00",
+    collateralDelta: "-$80,000",
+    debtDelta: "-$55,000",
   },
   {
     id: "6",
     type: "rebalance",
     timestamp: "2026-03-17T14:05:00Z",
-    asset: "wstETH",
-    details: "Health factor low, reduced leverage",
+    asset: "Aave v3",
+    details: "Health factor low — reduced leverage",
     txHash: "0xa4f1...2d90",
-    collateralDelta: "-400.00",
-    debtDelta: "-600.00",
+    collateralDelta: "-$40,000",
+    debtDelta: "-$60,000",
   },
   {
     id: "7",
-    type: "deleverage",
+    type: "rebalance",
     timestamp: "2026-03-16T03:22:00Z",
-    asset: "rETH",
-    details: "Emergency deleverage triggered",
+    asset: "Vault",
+    details: "Shifted 10% weight from Aave to Morpho for better rate",
     txHash: "0xc7b2...8e56",
-    collateralDelta: "-5,100.00",
-    debtDelta: "-5,100.00",
   },
 ];
 
 const MOCK_POSITIONS: Position[] = [
   {
-    asset: "wstETH",
-    collateral: "4,023.41",
-    debt: "2,023.41",
-    netPosition: "2,000.00",
+    asset: "Aave v3",
+    collateral: "$6,116,530",
+    debt: "$3,544,090",
+    netPosition: "$2,572,440",
     healthFactor: "1.42",
-    leverage: "2.01x",
+    leverage: "2.38x",
     apy: "8.74%",
   },
   {
-    asset: "cbETH",
-    collateral: "3,079.50",
-    debt: "2,014.80",
-    netPosition: "1,064.70",
+    asset: "Morpho Blue",
+    collateral: "$4,077,690",
+    debt: "$2,362,720",
+    netPosition: "$1,714,970",
     healthFactor: "1.18",
-    leverage: "2.89x",
+    leverage: "2.38x",
     apy: "12.31%",
   },
 ];
@@ -173,7 +170,7 @@ export default function StrategiesPage() {
       {/* Active Positions */}
       <section className="mb-10">
         <h2 className="text-sm font-medium text-muted uppercase tracking-wider mb-4">
-          Active Positions
+          Adapter Positions
         </h2>
         <div className="grid gap-4 md:grid-cols-2">
           {MOCK_POSITIONS.map((pos) => (
@@ -183,8 +180,8 @@ export default function StrategiesPage() {
             >
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-surface-2 border border-border-bright flex items-center justify-center text-xs font-mono font-bold text-accent">
-                    {pos.asset.slice(0, 2).toUpperCase()}
+                  <div className="w-9 h-9 rounded-full bg-surface-2 border border-border-bright flex items-center justify-center text-[10px] font-mono font-bold text-accent">
+                    {pos.asset.split(" ")[0].slice(0, 4).toUpperCase()}
                   </div>
                   <div>
                     <div className="font-semibold">{pos.asset}</div>
@@ -233,7 +230,7 @@ export default function StrategiesPage() {
               <div className="mt-3 pt-3 border-t border-border flex justify-between text-xs text-muted">
                 <span>Net position</span>
                 <span className="font-mono text-foreground">
-                  {pos.netPosition} {pos.asset}
+                  {pos.netPosition}
                 </span>
               </div>
             </div>
