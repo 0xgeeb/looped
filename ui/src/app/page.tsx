@@ -1,52 +1,60 @@
+"use client";
+
 import Link from "next/link";
+import { useVaultData, useAdapterPositions } from "@/hooks/useVault";
+import { VAULT_ADDRESS } from "@/config/contracts";
 
-const VAULT = {
-  tvl: "$4,287,410",
-  netApy: "9.42%",
-  sharePrice: "$1.0271",
-  collateral: "$10,194,220",
-  debt: "$5,906,810",
-  leverage: "2.38x",
-  healthFactor: "1.31",
-  idleBuffer: "$214,370",
-  targetLtv: "70%",
-  loops: "3x",
-};
+function fmt(n: number, d = 2) {
+  return n.toLocaleString("en-US", {
+    minimumFractionDigits: d,
+    maximumFractionDigits: d,
+  });
+}
 
-const ADAPTERS = [
-  {
-    protocol: "Aave v3",
-    weight: 60,
-    collateral: "$6,116,530",
-    debt: "$3,544,090",
-    health: "1.42",
-    rate: "8.74%",
-  },
-  {
-    protocol: "Morpho Blue",
-    weight: 40,
-    collateral: "$4,077,690",
-    debt: "$2,362,720",
-    health: "1.18",
-    rate: "12.31%",
-  },
-];
+function fmtUsd(n: number) {
+  return `$${fmt(n)}`;
+}
 
-const RECENT = [
-  { action: "Rebalance", time: "2h ago", detail: "HF restored to 1.31 across adapters" },
-  { action: "Loop", time: "5h ago", detail: "Deployed idle USDC at 70% LTV" },
-  { action: "Deposit", time: "17h ago", detail: "New deposit — 50,000 USDC" },
-  { action: "Rebalance", time: "21h ago", detail: "Shifted 10% weight from Aave to Morpho" },
-];
-
-function healthColor(hf: string) {
-  const v = parseFloat(hf);
-  if (v >= 1.5) return "text-accent";
-  if (v >= 1.2) return "text-warning";
+function healthColor(hf: number) {
+  if (hf >= 1.5) return "text-accent";
+  if (hf >= 1.2) return "text-warning";
   return "text-danger";
 }
 
+function shortAddr(addr: string) {
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+}
+
+const ADAPTER_COLORS = ["bg-accent", "bg-accent/40", "bg-warning", "bg-purple-400"];
+
 export default function Dashboard() {
+  const { vault, isLoading } = useVaultData();
+  const { adapters } = useAdapterPositions(vault?.adapters ?? []);
+
+  const totalCollateral = adapters.reduce((sum, a) => sum + a.collateral, 0);
+  const totalDebt = adapters.reduce((sum, a) => sum + a.debt, 0);
+  const netPosition = totalCollateral - totalDebt;
+  const leverage = vault && vault.totalAssets > 0 ? totalCollateral / vault.totalAssets : 0;
+  const avgHealthFactor = adapters.length > 0
+    ? adapters.reduce((sum, a) => sum + a.healthFactor * a.weightBps, 0) / adapters.reduce((sum, a) => sum + a.weightBps, 0)
+    : 0;
+  const netApy = adapters.length > 0
+    ? adapters.reduce((sum, a) => sum + (a.supplyRate - a.borrowRate) * a.weightBps, 0) / 10000
+    : 0;
+  const idleBuffer = vault ? vault.totalAssets - netPosition : 0;
+
+  if (isLoading) {
+    return (
+      <div className="max-w-6xl mx-auto w-full px-6 py-8">
+        <div className="animate-pulse space-y-4">
+          <div className="h-16 bg-surface-2 rounded-lg w-64" />
+          <div className="h-12 bg-surface-2 rounded-xl" />
+          <div className="h-64 bg-surface-2 rounded-xl" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-6xl mx-auto w-full px-6 py-8">
       {/* Hero Stats */}
@@ -57,7 +65,7 @@ export default function Dashboard() {
               Total Value Locked
             </p>
             <h1 className="text-4xl font-semibold tracking-tight tabular-nums">
-              {VAULT.tvl}
+              {fmtUsd(vault?.totalAssets ?? 0)}
             </h1>
           </div>
           <div className="text-right">
@@ -65,7 +73,7 @@ export default function Dashboard() {
               Net APY
             </p>
             <div className="text-3xl font-semibold tracking-tight text-accent tabular-nums">
-              {VAULT.netApy}
+              {fmt(netApy)}%
             </div>
           </div>
         </div>
@@ -73,12 +81,12 @@ export default function Dashboard() {
         {/* Metric strip */}
         <div className="grid grid-cols-6 gap-px rounded-xl overflow-hidden bg-border">
           {[
-            { label: "Share Price", value: VAULT.sharePrice, color: "text-accent" },
-            { label: "Collateral", value: VAULT.collateral },
-            { label: "Debt", value: VAULT.debt, color: "text-danger" },
-            { label: "Leverage", value: VAULT.leverage },
-            { label: "Health Factor", value: VAULT.healthFactor, color: healthColor(VAULT.healthFactor) },
-            { label: "Idle Buffer", value: VAULT.idleBuffer, color: "text-muted" },
+            { label: "Share Price", value: fmtUsd(vault?.sharePrice ?? 0), color: "text-accent" },
+            { label: "Collateral", value: fmtUsd(totalCollateral) },
+            { label: "Debt", value: fmtUsd(totalDebt), color: "text-danger" },
+            { label: "Leverage", value: leverage > 0 ? `${fmt(leverage)}x` : "—" },
+            { label: "Health Factor", value: avgHealthFactor > 0 ? fmt(avgHealthFactor) : "—", color: avgHealthFactor > 0 ? healthColor(avgHealthFactor) : "text-muted" },
+            { label: "Idle Buffer", value: fmtUsd(idleBuffer > 0 ? idleBuffer : 0), color: "text-muted" },
           ].map((m, i) => (
             <div
               key={m.label}
@@ -104,20 +112,22 @@ export default function Dashboard() {
           </h2>
 
           {/* Weight bar */}
-          <div className="flex rounded-full overflow-hidden h-2 mb-4">
-            {ADAPTERS.map((a, i) => (
-              <div
-                key={a.protocol}
-                className={`${i === 0 ? "bg-accent" : "bg-accent/40"}`}
-                style={{ width: `${a.weight}%` }}
-              />
-            ))}
-          </div>
+          {adapters.length > 0 && (
+            <div className="flex rounded-full overflow-hidden h-2 mb-4">
+              {adapters.map((a, i) => (
+                <div
+                  key={a.address}
+                  className={ADAPTER_COLORS[i % ADAPTER_COLORS.length]}
+                  style={{ width: `${a.weightBps / 100}%` }}
+                />
+              ))}
+            </div>
+          )}
 
           <div className="space-y-3">
-            {ADAPTERS.map((adapter, i) => (
+            {adapters.map((adapter, i) => (
               <div
-                key={adapter.protocol}
+                key={adapter.address}
                 className="rounded-xl bg-surface border border-border p-5 glow-card animate-fade-in-up"
                 style={{ animationDelay: `${(i + 1) * 80}ms` }}
               >
@@ -125,19 +135,19 @@ export default function Dashboard() {
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-surface-2 border border-border-bright flex items-center justify-center">
                       <span className="text-xs font-mono font-bold text-accent">
-                        {adapter.weight}%
+                        {adapter.weightBps / 100}%
                       </span>
                     </div>
                     <div>
-                      <div className="font-semibold">{adapter.protocol}</div>
+                      <div className="font-semibold font-mono">{shortAddr(adapter.address)}</div>
                       <div className="text-xs text-muted font-mono">
-                        {adapter.weight}% weight
+                        {adapter.weightBps / 100}% weight
                       </div>
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="text-xl font-mono font-semibold text-accent tabular-nums">
-                      {adapter.rate}
+                      {fmt(adapter.supplyRate - adapter.borrowRate)}%
                     </div>
                     <div className="text-[10px] text-muted uppercase tracking-wider">
                       net rate
@@ -146,16 +156,22 @@ export default function Dashboard() {
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
-                  <Metric label="Collateral" value={adapter.collateral} />
-                  <Metric label="Debt" value={adapter.debt} color="text-danger" />
+                  <Metric label="Collateral" value={fmtUsd(adapter.collateral)} />
+                  <Metric label="Debt" value={fmtUsd(adapter.debt)} color="text-danger" />
                   <Metric
                     label="Health"
-                    value={adapter.health}
-                    color={healthColor(adapter.health)}
+                    value={fmt(adapter.healthFactor)}
+                    color={healthColor(adapter.healthFactor)}
                   />
                 </div>
               </div>
             ))}
+
+            {adapters.length === 0 && (
+              <div className="rounded-xl bg-surface border border-border p-8 text-center text-sm text-muted">
+                No active adapters
+              </div>
+            )}
           </div>
 
           {/* Deposit CTA */}
@@ -180,37 +196,44 @@ export default function Dashboard() {
 
         {/* Sidebar */}
         <div>
-          {/* Bot Status */}
+          {/* Vault Info */}
           <div
             className="rounded-xl bg-surface border border-border p-4 mb-4 animate-fade-in-up"
             style={{ animationDelay: "100ms" }}
           >
             <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium">Keeper Bot</span>
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse-glow" />
-                <span className="text-xs font-mono text-accent">ACTIVE</span>
-              </div>
+              <span className="text-sm font-medium">Vault</span>
+              <span className="text-xs font-mono text-muted">{shortAddr(VAULT_ADDRESS)}</span>
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="rounded-lg bg-surface-2 px-3 py-2">
-                <div className="text-muted mb-0.5">Last action</div>
-                <div className="font-mono">2h ago</div>
+                <div className="text-muted mb-0.5">Target LTV</div>
+                <div className="font-mono">{vault?.targetLtv ?? 0}%</div>
               </div>
               <div className="rounded-lg bg-surface-2 px-3 py-2">
-                <div className="text-muted mb-0.5">Actions (24h)</div>
-                <div className="font-mono">7</div>
+                <div className="text-muted mb-0.5">Loop Count</div>
+                <div className="font-mono">{vault?.targetLoops ?? 0}x</div>
+              </div>
+              <div className="rounded-lg bg-surface-2 px-3 py-2">
+                <div className="text-muted mb-0.5">Buffer</div>
+                <div className="font-mono">{vault?.targetBuffer ?? 0}%</div>
+              </div>
+              <div className="rounded-lg bg-surface-2 px-3 py-2">
+                <div className="text-muted mb-0.5">Status</div>
+                <div className={`font-mono ${vault?.paused ? "text-danger" : "text-accent"}`}>
+                  {vault?.paused ? "PAUSED" : "ACTIVE"}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Recent Activity */}
+          {/* Strategy Link */}
           <div
             className="rounded-xl bg-surface border border-border overflow-hidden animate-fade-in-up"
             style={{ animationDelay: "160ms" }}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <span className="text-sm font-medium">Recent Activity</span>
+              <span className="text-sm font-medium">Keeper Activity</span>
               <Link
                 href="/strategies"
                 className="text-xs text-accent hover:text-accent-dim transition-colors font-mono"
@@ -218,31 +241,16 @@ export default function Dashboard() {
                 View all
               </Link>
             </div>
-            <div className="divide-y divide-border">
-              {RECENT.map((item, i) => (
-                <div
-                  key={i}
-                  className="px-4 py-3 hover:bg-surface-2 transition-colors"
-                >
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span
-                      className={`text-[10px] font-mono font-bold tracking-wider ${
-                        item.action === "Rebalance"
-                          ? "text-warning"
-                          : item.action === "Loop"
-                            ? "text-accent"
-                            : "text-foreground"
-                      }`}
-                    >
-                      {item.action.toUpperCase()}
-                    </span>
-                    <span className="text-[10px] text-muted font-mono">
-                      {item.time}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted truncate">{item.detail}</p>
-                </div>
-              ))}
+            <div className="px-4 py-6 text-center">
+              <p className="text-sm text-muted mb-3">
+                View keeper bot activity, recent loops, rebalances, and deleverages on the strategies page.
+              </p>
+              <Link
+                href="/strategies"
+                className="inline-block px-4 py-2 rounded-lg bg-surface-2 border border-border text-sm font-mono hover:bg-surface-3 transition-colors"
+              >
+                Strategies
+              </Link>
             </div>
           </div>
         </div>

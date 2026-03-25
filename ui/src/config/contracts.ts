@@ -1,7 +1,9 @@
 import { parseAbi, type Address } from "viem";
 
-// ── Deployed addresses (update after deploy) ────────────────────────
-export const VAULT_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
+// ── Deployed addresses (update with real address after deploy) ───────
+export const VAULT_ADDRESS: Address =
+  (process.env.NEXT_PUBLIC_VAULT_ADDRESS as Address) ??
+  "0x0000000000000000000000000000000000000000";
 export const USDC_ADDRESS: Address = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
 
 // ── ABIs ─────────────────────────────────────────────────────────────
@@ -45,4 +47,14 @@ export const adapterAbi = parseAbi([
   "function getHealthFactor() view returns (uint256)",
   "function getSupplyRate(address asset) view returns (uint256)",
   "function getBorrowRate(address asset) view returns (uint256)",
+]);
+
+export const vaultEventAbi = parseAbi([
+  "event PositionLooped(address indexed adapter, uint256 collateral, uint256 debt)",
+  "event Delooped(address indexed adapter, uint256 assetsFreed)",
+  "event Rebalanced()",
+  "event EmergencyDeleveraged()",
+  "event IdleDeployed(uint256 amount)",
+  "event WeightsUpdated()",
+  "event AdapterMigrated(address indexed from, address indexed to)",
 ]);
