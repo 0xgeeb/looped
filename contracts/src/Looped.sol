@@ -250,15 +250,20 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
             if (maxWithdrawable == 0) break;
 
             uint256 toWithdraw = maxWithdrawable < (neededAssets - freed) ? maxWithdrawable : (neededAssets - freed);
-            adapter.withdraw(_asset, toWithdraw);
+
+            uint256 balBefore = ERC20(_asset).balanceOf(address(this));
+            try adapter.withdraw(_asset, toWithdraw) {} catch { break; }
+            uint256 received = ERC20(_asset).balanceOf(address(this)) - balBefore;
 
             if (dbt > 0) {
-                uint256 repayAmt = toWithdraw < dbt ? toWithdraw : dbt;
-                SafeTransferLib.safeApprove(_asset, address(adapter), repayAmt);
-                adapter.repay(_asset, repayAmt);
-                freed += toWithdraw - repayAmt;
+                uint256 repayAmt = received < dbt ? received : dbt;
+                if (repayAmt > 0) {
+                    SafeTransferLib.safeApprove(_asset, address(adapter), repayAmt);
+                    adapter.repay(_asset, repayAmt);
+                    freed += received > repayAmt ? received - repayAmt : 0;
+                }
             } else {
-                freed += toWithdraw;
+                freed += received;
             }
         }
 
@@ -497,18 +502,24 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
                 if (maxWithdrawable == 0) break;
 
-                adapter.withdraw(_asset, maxWithdrawable);
+                // Best-effort: withdraw may revert due to swap slippage in cross-asset adapters
+                uint256 balBefore = ERC20(_asset).balanceOf(address(this));
+                try adapter.withdraw(_asset, maxWithdrawable) {} catch { break; }
+                uint256 received = ERC20(_asset).balanceOf(address(this)) - balBefore;
 
-                uint256 repayAmt = maxWithdrawable < dbt ? maxWithdrawable : dbt;
-                SafeTransferLib.safeApprove(_asset, address(adapter), repayAmt);
-                adapter.repay(_asset, repayAmt);
+                // Repay based on what we actually received, not what we asked for
+                uint256 repayAmt = received < dbt ? received : dbt;
+                if (repayAmt > 0) {
+                    SafeTransferLib.safeApprove(_asset, address(adapter), repayAmt);
+                    adapter.repay(_asset, repayAmt);
+                }
 
                 dbt = adapter.getDebt(_asset);
             }
 
             uint256 remainingCol = adapter.getCollateral(_asset);
             if (remainingCol > 0) {
-                adapter.withdraw(_asset, remainingCol);
+                try adapter.withdraw(_asset, remainingCol) {} catch {}
             }
         }
 
