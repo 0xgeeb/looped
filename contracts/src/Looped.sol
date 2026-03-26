@@ -7,6 +7,7 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ILendingAdapter} from "./interfaces/ILendingAdapter.sol";
+import {IPendleMarketFactory} from "./interfaces/IPendleMarketFactory.sol";
 
 contract Looped is ERC4626, Ownable, ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
@@ -14,13 +15,14 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     address private immutable _asset;
-    address public keeper;
+    address public strategist;
     uint8 public targetLoops;
     uint256 public targetLtv; // in bps (e.g. 7000 = 70%)
     uint256 public minHealthFactor; // 1e18 scaled
     uint256 public targetBuffer; // bps of totalAssets (e.g. 500 = 5%)
     uint256 public withdrawalFeeBps; // e.g. 5 = 0.05%
     uint256 public rebalanceTriggerHF; // 1e18 scaled
+    uint256 public maxRolloverSlippageBps; // e.g. 50 = 0.5%
     bool public paused;
 
     // Multi-adapter
@@ -28,17 +30,23 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     mapping(ILendingAdapter => bool) public isActiveAdapter;
     mapping(ILendingAdapter => uint256) public adapterWeightBps;
 
+    // Pendle validation
+    IPendleMarketFactory public pendleMarketFactory;
+
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
     //////////////////////////////////////////////////////////////*/
 
     error Paused();
-    error OnlyKeeper();
+    error OnlyStrategist();
     error HealthFactorTooLow();
     error InvalidParams();
     error AdapterNotRegistered();
     error AdapterAlreadyRegistered();
     error WeightsMismatch();
+    error ConditionNotMet();
+    error NotMatured();
+    error InvalidMarket();
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -48,12 +56,14 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     event Delooped(address indexed adapter, uint256 assetsFreed);
     event Rebalanced();
     event EmergencyDeleveraged();
-    event KeeperUpdated(address indexed newKeeper);
+    event StrategistUpdated(address indexed newStrategist);
     event AdapterAdded(address indexed adapter);
     event AdapterRemoved(address indexed adapter);
     event AdapterMigrated(address indexed from, address indexed to);
     event IdleDeployed(uint256 amount);
     event WeightsUpdated();
+    event RolledOverToIdle(address indexed adapter, uint256 amount);
+    event RolledInto(address indexed adapter, address indexed pendleMarket);
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
@@ -64,8 +74,8 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         _;
     }
 
-    modifier onlyKeeper() {
-        if (msg.sender != keeper && msg.sender != owner()) revert OnlyKeeper();
+    modifier onlyStrategist() {
+        if (msg.sender != strategist && msg.sender != owner()) revert OnlyStrategist();
         _;
     }
 
@@ -91,6 +101,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         targetBuffer = 500; // 5% default
         withdrawalFeeBps = 5; // 0.05% default
         rebalanceTriggerHF = 1.3e18; // default trigger
+        maxRolloverSlippageBps = 50; // 0.5% default
         _initializeOwner(msg.sender);
     }
 
@@ -127,7 +138,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         return net;
     }
 
-    /// @dev Deposits land idle — keeper deploys excess via deployIdle()
+    /// @dev Deposits land idle — excess deployed via deployIdle()
     function _afterDeposit(uint256, uint256) internal override whenNotPaused {}
 
     function _beforeWithdraw(uint256 assets, uint256) internal override nonReentrant whenNotPaused {
@@ -275,14 +286,15 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     }
 
     /*//////////////////////////////////////////////////////////////
-                          KEEPER / ADMIN
+                    TIER 1 — PERMISSIONLESS OPS
     //////////////////////////////////////////////////////////////*/
 
-    function deployIdle() external onlyKeeper nonReentrant whenNotPaused {
+    /// @notice Anyone can call. Deploys idle capital when above buffer target.
+    function deployIdle() external nonReentrant whenNotPaused {
         uint256 idle = ERC20(_asset).balanceOf(address(this));
         uint256 total = totalAssets();
         uint256 bufferTarget = total * targetBuffer / 10000;
-        if (idle <= bufferTarget) return;
+        if (idle <= bufferTarget) revert ConditionNotMet();
 
         uint256 deployable = idle - bufferTarget;
         _deployByWeight(deployable);
@@ -319,7 +331,21 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         }
     }
 
-    function rebalance() external onlyKeeper nonReentrant whenNotPaused {
+    /// @notice Anyone can call. Rebalances when any adapter HF is below trigger.
+    function rebalance() external nonReentrant whenNotPaused {
+        // Verify at least one adapter needs rebalancing
+        bool needed = false;
+        for (uint256 i = 0; i < adapters.length; i++) {
+            if (adapterWeightBps[adapters[i]] == 0) continue;
+            if (address(adapters[i]).code.length == 0) continue;
+            if (adapters[i].getDebt(_asset) == 0) continue;
+            if (adapters[i].getHealthFactor() < rebalanceTriggerHF) {
+                needed = true;
+                break;
+            }
+        }
+        if (!needed) revert ConditionNotMet();
+
         _deloopAllAdapters();
 
         uint256 idle = ERC20(_asset).balanceOf(address(this));
@@ -333,7 +359,99 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         emit Rebalanced();
     }
 
-    function migrateAdapter(ILendingAdapter from, ILendingAdapter to) external onlyKeeper nonReentrant whenNotPaused {
+    /// @notice Anyone can call. Deloops a matured PT adapter back to idle.
+    function rolloverToIdle(ILendingAdapter adapter) external nonReentrant whenNotPaused {
+        if (!isActiveAdapter[adapter]) revert AdapterNotRegistered();
+        if (!adapter.isMatured()) revert NotMatured();
+
+        uint256 idleBefore = ERC20(_asset).balanceOf(address(this));
+        _deloopAll(adapter);
+        uint256 idleAfter = ERC20(_asset).balanceOf(address(this));
+        uint256 freed = idleAfter > idleBefore ? idleAfter - idleBefore : 0;
+
+        // Zero this adapter's weight, redistribute to others
+        uint256 freedWeight = adapterWeightBps[adapter];
+        adapterWeightBps[adapter] = 0;
+
+        if (freedWeight > 0 && freedWeight < 10000) {
+            _redistributeWeight(adapter, freedWeight);
+        }
+
+        emit RolledOverToIdle(address(adapter), freed);
+    }
+
+    /// @dev Redistributes freed weight proportionally to remaining weighted adapters
+    function _redistributeWeight(ILendingAdapter excluded, uint256 freedWeight) internal {
+        uint256 remainingTotal = 0;
+        for (uint256 i = 0; i < adapters.length; i++) {
+            if (adapters[i] == excluded) continue;
+            remainingTotal += adapterWeightBps[adapters[i]];
+        }
+        if (remainingTotal == 0) return;
+
+        uint256 distributed = 0;
+        ILendingAdapter lastAdapter;
+        for (uint256 i = 0; i < adapters.length; i++) {
+            if (adapters[i] == excluded) continue;
+            uint256 w = adapterWeightBps[adapters[i]];
+            if (w == 0) continue;
+            lastAdapter = adapters[i];
+        }
+
+        for (uint256 i = 0; i < adapters.length; i++) {
+            if (adapters[i] == excluded) continue;
+            uint256 w = adapterWeightBps[adapters[i]];
+            if (w == 0) continue;
+
+            uint256 bonus;
+            if (adapters[i] == lastAdapter) {
+                bonus = freedWeight - distributed;
+            } else {
+                bonus = freedWeight * w / remainingTotal;
+            }
+            adapterWeightBps[adapters[i]] += bonus;
+            distributed += bonus;
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    TIER 2 — STRATEGIST OPS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Strategist deploys idle capital into a new Pendle PT loop via a specific adapter.
+    /// @param adapter The PT adapter to deploy into
+    /// @param pendleMarket The Pendle market to validate against factory
+    function rollInto(ILendingAdapter adapter, address pendleMarket) external onlyStrategist nonReentrant whenNotPaused {
+        if (!isActiveAdapter[adapter]) revert AdapterNotRegistered();
+
+        // Guardrail 1: Must be a valid Pendle market
+        if (address(pendleMarketFactory) != address(0)) {
+            if (!pendleMarketFactory.isValidMarket(pendleMarket)) revert InvalidMarket();
+        }
+
+        // Deploy idle capital into this adapter
+        uint256 idle = ERC20(_asset).balanceOf(address(this));
+        uint256 total = totalAssets();
+        uint256 bufferTarget = total * targetBuffer / 10000;
+        if (idle <= bufferTarget) revert ConditionNotMet();
+
+        uint256 deployable = idle - bufferTarget;
+
+        // Only deploy this adapter's weighted share
+        uint256 w = adapterWeightBps[adapter];
+        uint256 adapterShare = w == 10000 ? deployable : deployable * w / 10000;
+        if (adapterShare == 0) revert ConditionNotMet();
+
+        _loop(adapterShare, adapter);
+
+        // Guardrail 4: Post-loop health factor check (already in _loop)
+        // Guardrail 3: Slippage is enforced inside the adapter's swap logic
+
+        emit RolledInto(address(adapter), pendleMarket);
+    }
+
+    /// @notice Strategist migrates capital between adapters
+    function migrateAdapter(ILendingAdapter from, ILendingAdapter to) external onlyStrategist nonReentrant whenNotPaused {
         if (!isActiveAdapter[from] || !isActiveAdapter[to]) revert AdapterNotRegistered();
 
         uint256 fromWeight = adapterWeightBps[from];
@@ -353,7 +471,6 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         uint256 deployable = idle > bufferTarget ? idle - bufferTarget : 0;
 
         if (deployable > 0) {
-            // Only loop into the target adapter with its proportional share
             uint256 toShare = deployable * adapterWeightBps[to] / 10000;
             if (toShare > 0) {
                 _loop(toShare, to);
@@ -362,6 +479,10 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
         emit AdapterMigrated(address(from), address(to));
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        TIER 3 — OWNER OPS
+    //////////////////////////////////////////////////////////////*/
 
     function emergencyDeleverage() external onlyOwner nonReentrant {
         for (uint256 i = 0; i < adapters.length; i++) {
@@ -404,15 +525,14 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         if (isActiveAdapter[a]) revert AdapterAlreadyRegistered();
         adapters.push(a);
         isActiveAdapter[a] = true;
-        // Weight starts at 0 — owner must call setAdapterWeights
         emit AdapterAdded(_adapter);
     }
 
     function removeAdapter(address _adapter) external onlyOwner {
         ILendingAdapter a = ILendingAdapter(_adapter);
         if (!isActiveAdapter[a]) revert AdapterNotRegistered();
-        if (adapterWeightBps[a] > 0) revert InvalidParams(); // must zero weight first
-        if (a.getCollateral(_asset) > 0 || a.getDebt(_asset) > 0) revert InvalidParams(); // must be empty
+        if (adapterWeightBps[a] > 0) revert InvalidParams();
+        if (a.getCollateral(_asset) > 0 || a.getDebt(_asset) > 0) revert InvalidParams();
 
         isActiveAdapter[a] = false;
         for (uint256 i = 0; i < adapters.length; i++) {
@@ -431,12 +551,10 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     ) external onlyOwner {
         if (_adapters.length != _weights.length) revert WeightsMismatch();
 
-        // Zero all weights first
         for (uint256 i = 0; i < adapters.length; i++) {
             adapterWeightBps[adapters[i]] = 0;
         }
 
-        // Set new weights and validate
         uint256 totalWeight = 0;
         for (uint256 i = 0; i < _adapters.length; i++) {
             if (!isActiveAdapter[_adapters[i]]) revert AdapterNotRegistered();
@@ -472,7 +590,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     }
 
     function setTargetLtv(uint256 _targetLtv) external onlyOwner {
-        if (_targetLtv > 9500) revert InvalidParams(); // max 95%
+        if (_targetLtv > 9500) revert InvalidParams();
         targetLtv = _targetLtv;
     }
 
@@ -480,23 +598,32 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         minHealthFactor = _minHealthFactor;
     }
 
-    function setKeeper(address _keeper) external onlyOwner {
-        keeper = _keeper;
-        emit KeeperUpdated(_keeper);
+    function setStrategist(address _strategist) external onlyOwner {
+        strategist = _strategist;
+        emit StrategistUpdated(_strategist);
     }
 
     function setTargetBuffer(uint256 _targetBuffer) external onlyOwner {
-        if (_targetBuffer > 2000) revert InvalidParams(); // max 20%
+        if (_targetBuffer > 2000) revert InvalidParams();
         targetBuffer = _targetBuffer;
     }
 
     function setWithdrawalFeeBps(uint256 _withdrawalFeeBps) external onlyOwner {
-        if (_withdrawalFeeBps > 100) revert InvalidParams(); // max 1%
+        if (_withdrawalFeeBps > 100) revert InvalidParams();
         withdrawalFeeBps = _withdrawalFeeBps;
     }
 
     function setRebalanceTriggerHF(uint256 _rebalanceTriggerHF) external onlyOwner {
         rebalanceTriggerHF = _rebalanceTriggerHF;
+    }
+
+    function setMaxRolloverSlippageBps(uint256 _maxRolloverSlippageBps) external onlyOwner {
+        if (_maxRolloverSlippageBps > 500) revert InvalidParams();
+        maxRolloverSlippageBps = _maxRolloverSlippageBps;
+    }
+
+    function setPendleMarketFactory(address _factory) external onlyOwner {
+        pendleMarketFactory = IPendleMarketFactory(_factory);
     }
 
     function unpause() external onlyOwner {

@@ -7,7 +7,7 @@ import {
   formatEther,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { mainnet } from "viem/chains";
+import { base } from "viem/chains";
 import { config } from "./config.js";
 
 // Minimal ABIs
@@ -21,8 +21,13 @@ const vaultAbi = parseAbi([
   "function getAdapterPosition(address) view returns (uint256 collateral, uint256 debt, uint256 weightBps)",
   "function adapterWeightBps(address) view returns (uint256)",
   "function asset() view returns (address)",
+  "function strategist() view returns (address)",
+  // Tier 1 — permissionless
   "function deployIdle()",
   "function rebalance()",
+  "function rolloverToIdle(address adapter)",
+  // Tier 2 — strategist
+  "function rollInto(address adapter, address pendleMarket)",
   "function migrateAdapter(address from, address to)",
   "function setAdapterWeights(address[], uint256[])",
 ]);
@@ -33,6 +38,8 @@ const adapterAbi = parseAbi([
   "function getDebt(address asset) view returns (uint256)",
   "function getSupplyRate(address asset) view returns (uint256)",
   "function getBorrowRate(address asset) view returns (uint256)",
+  "function getExpiry() view returns (uint256)",
+  "function isMatured() view returns (bool)",
 ]);
 
 const erc20Abi = parseAbi([
@@ -43,17 +50,16 @@ const account = privateKeyToAccount(config.privateKey);
 const vault = config.vaultAddress;
 
 const publicClient = createPublicClient({
-  chain: mainnet,
+  chain: base,
   transport: http(config.rpcUrl),
 });
 
 const walletClient = createWalletClient({
   account,
-  chain: mainnet,
+  chain: base,
   transport: http(config.rpcUrl),
 });
 
-let lastMigrationTime = 0;
 const timers: NodeJS.Timeout[] = [];
 let running = false;
 
@@ -91,110 +97,105 @@ const getActiveAdapters = async (): Promise<{ address: Address; weight: bigint }
   return results;
 };
 
-// ─── Transactions ────────────────────────────────────────────
+// ─── Tier 1: Permissionless Callers ──────────────────────────
+// These call on-chain functions that anyone can trigger.
+// No privileged access needed — conditions are checked on-chain.
 
-const executeDeployIdle = async () => {
+const callDeployIdle = async () => {
   try {
     const hash = await walletClient.writeContract({
-      chain: mainnet,
+      chain: base,
       address: vault,
       abi: vaultAbi,
       functionName: "deployIdle",
     });
-    console.log(`[keeper:tx] deployIdle sent: ${hash}`);
+    console.log(`[tier1:deployIdle] tx sent: ${hash}`);
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log(`[keeper:tx] deployIdle confirmed in block ${receipt.blockNumber}`);
-  } catch (err) {
-    console.error("[keeper:tx] deployIdle failed:", err);
+    console.log(`[tier1:deployIdle] confirmed block ${receipt.blockNumber}`);
+  } catch (err: any) {
+    // ConditionNotMet is expected when idle <= buffer
+    if (err?.message?.includes("ConditionNotMet")) {
+      console.log("[tier1:deployIdle] condition not met, skipping");
+    } else {
+      console.error("[tier1:deployIdle] failed:", err);
+    }
   }
 };
 
-const executeRebalance = async () => {
+const callRebalance = async () => {
   try {
     const hash = await walletClient.writeContract({
-      chain: mainnet,
+      chain: base,
       address: vault,
       abi: vaultAbi,
       functionName: "rebalance",
     });
-    console.log(`[keeper:tx] rebalance sent: ${hash}`);
+    console.log(`[tier1:rebalance] tx sent: ${hash}`);
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log(`[keeper:tx] rebalance confirmed in block ${receipt.blockNumber}`);
-  } catch (err) {
-    console.error("[keeper:tx] rebalance failed:", err);
+    console.log(`[tier1:rebalance] confirmed block ${receipt.blockNumber}`);
+  } catch (err: any) {
+    if (err?.message?.includes("ConditionNotMet")) {
+      console.log("[tier1:rebalance] condition not met, skipping");
+    } else {
+      console.error("[tier1:rebalance] failed:", err);
+    }
   }
 };
 
-const executeMigration = async (from: Address, to: Address) => {
+const callRolloverToIdle = async (adapterAddr: Address) => {
   try {
     const hash = await walletClient.writeContract({
-      chain: mainnet,
+      chain: base,
       address: vault,
       abi: vaultAbi,
-      functionName: "migrateAdapter",
-      args: [from, to],
+      functionName: "rolloverToIdle",
+      args: [adapterAddr],
     });
-    console.log(`[keeper:tx] migrateAdapter sent: ${hash}`);
+    console.log(`[tier1:rollover] tx sent for ${adapterAddr}: ${hash}`);
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log(`[keeper:tx] migrateAdapter confirmed in block ${receipt.blockNumber}`);
+    console.log(`[tier1:rollover] confirmed block ${receipt.blockNumber}`);
   } catch (err) {
-    console.error("[keeper:tx] migrateAdapter failed:", err);
+    console.error(`[tier1:rollover] failed for ${adapterAddr}:`, err);
   }
 };
 
-const executeSetWeights = async (adapters: Address[], weights: bigint[]) => {
+// ─── Tier 2: Strategist Transactions ─────────────────────────
+
+const callRollInto = async (adapterAddr: Address, pendleMarket: Address) => {
   try {
     const hash = await walletClient.writeContract({
-      chain: mainnet,
+      chain: base,
+      address: vault,
+      abi: vaultAbi,
+      functionName: "rollInto",
+      args: [adapterAddr, pendleMarket],
+    });
+    console.log(`[tier2:rollInto] tx sent: ${hash}`);
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    console.log(`[tier2:rollInto] confirmed block ${receipt.blockNumber}`);
+  } catch (err) {
+    console.error("[tier2:rollInto] failed:", err);
+  }
+};
+
+const callSetWeights = async (adapters: Address[], weights: bigint[]) => {
+  try {
+    const hash = await walletClient.writeContract({
+      chain: base,
       address: vault,
       abi: vaultAbi,
       functionName: "setAdapterWeights",
       args: [adapters, weights],
     });
-    console.log(`[keeper:tx] setAdapterWeights sent: ${hash}`);
+    console.log(`[tier2:setWeights] tx sent: ${hash}`);
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log(`[keeper:tx] setAdapterWeights confirmed in block ${receipt.blockNumber}`);
+    console.log(`[tier2:setWeights] confirmed block ${receipt.blockNumber}`);
   } catch (err) {
-    console.error("[keeper:tx] setAdapterWeights failed:", err);
+    console.error("[tier2:setWeights] failed:", err);
   }
 };
 
 // ─── Jobs ────────────────────────────────────────────────────
-
-const checkHealthFactor = async () => {
-  const paused = await readVault("paused");
-  if (paused) {
-    console.log("[keeper:health] vault is paused, skipping");
-    return;
-  }
-
-  const adapters = await getActiveAdapters();
-  const triggerHF = await readVault("rebalanceTriggerHF") as bigint;
-  const minHF = await readVault("minHealthFactor") as bigint;
-
-  for (const { address: adapterAddr, weight } of adapters) {
-    try {
-      const hf = await readAdapter(adapterAddr, "getHealthFactor") as bigint;
-      console.log(
-        `[keeper:health] adapter ${adapterAddr} (${weight} bps) HF: ${formatEther(hf)} | trigger: ${formatEther(triggerHF)} | min: ${formatEther(minHF)}`
-      );
-
-      if (hf < minHF * 110n / 100n && hf < triggerHF) {
-        console.log(`[keeper:health] CRITICAL — adapter ${adapterAddr} HF near minimum, triggering rebalance`);
-        await executeRebalance();
-        return; // rebalance handles all adapters
-      }
-
-      if (hf < triggerHF) {
-        console.log(`[keeper:health] adapter ${adapterAddr} HF below trigger, rebalancing`);
-        await executeRebalance();
-        return;
-      }
-    } catch {
-      console.log(`[keeper:health] adapter ${adapterAddr} health check failed, skipping`);
-    }
-  }
-};
 
 const checkAndDeployIdle = async () => {
   const paused = await readVault("paused");
@@ -217,38 +218,73 @@ const checkAndDeployIdle = async () => {
   const idleRatio = idle * 10000n / totalAssets;
 
   console.log(
-    `[keeper:idle] idle: ${formatEther(idle)} | buffer target: ${formatEther(bufferTarget)} | idle ratio: ${idleRatio} bps`
+    `[tier1:idle] idle: ${formatEther(idle)} | buffer target: ${formatEther(bufferTarget)} | idle ratio: ${idleRatio} bps`
   );
 
-  const thresholdBps = BigInt(config.idleDeployThresholdBps);
-  if (idle > bufferTarget && idleRatio > targetBufferBps * thresholdBps / 10000n) {
-    console.log("[keeper:idle] deploying excess idle");
-    await executeDeployIdle();
+  if (idle > bufferTarget) {
+    console.log("[tier1:idle] deploying excess idle");
+    await callDeployIdle();
   }
 };
 
-const periodicRebalance = async () => {
+const checkHealthFactor = async () => {
+  const paused = await readVault("paused");
+  if (paused) {
+    console.log("[tier1:health] vault is paused, skipping");
+    return;
+  }
+
+  const adapters = await getActiveAdapters();
+  const triggerHF = await readVault("rebalanceTriggerHF") as bigint;
+  const minHF = await readVault("minHealthFactor") as bigint;
+  const asset = await readVault("asset") as Address;
+
+  for (const { address: adapterAddr, weight } of adapters) {
+    try {
+      const debt = await readAdapter(adapterAddr, "getDebt", [asset]) as bigint;
+      if (debt === 0n) continue;
+
+      const hf = await readAdapter(adapterAddr, "getHealthFactor") as bigint;
+      console.log(
+        `[tier1:health] adapter ${adapterAddr} (${weight} bps) HF: ${formatEther(hf)} | trigger: ${formatEther(triggerHF)}`
+      );
+
+      if (hf < triggerHF) {
+        console.log(`[tier1:health] adapter ${adapterAddr} HF below trigger, calling rebalance`);
+        await callRebalance();
+        return;
+      }
+    } catch {
+      console.log(`[tier1:health] adapter ${adapterAddr} health check failed, skipping`);
+    }
+  }
+};
+
+const checkMaturedAdapters = async () => {
   const paused = await readVault("paused");
   if (paused) return;
 
-  console.log("[keeper:periodic] running scheduled rebalance");
-  await executeRebalance();
-};
+  const allAdapters = await readVault("getAdapters") as Address[];
 
-const getNetRate = async (adapterAddr: Address, asset: Address): Promise<bigint> => {
-  const supplyRate = await readAdapter(adapterAddr, "getSupplyRate", [asset]) as bigint;
-  const borrowRate = await readAdapter(adapterAddr, "getBorrowRate", [asset]) as bigint;
-  return supplyRate - borrowRate;
+  for (const addr of allAdapters) {
+    try {
+      const expiry = await readAdapter(addr, "getExpiry") as bigint;
+      if (expiry === 0n) continue; // non-PT adapter
+
+      const matured = await readAdapter(addr, "isMatured") as boolean;
+      if (matured) {
+        console.log(`[tier1:rollover] adapter ${addr} matured (expiry: ${expiry}), rolling over to idle`);
+        await callRolloverToIdle(addr);
+      }
+    } catch {
+      console.log(`[tier1:rollover] adapter ${addr} expiry check failed, skipping`);
+    }
+  }
 };
 
 const checkRateOptimization = async () => {
   const paused = await readVault("paused");
   if (paused) return;
-
-  if (Date.now() - lastMigrationTime < config.migrationCooldownMs) {
-    console.log("[keeper:rates] migration cooldown active, skipping");
-    return;
-  }
 
   const asset = await readVault("asset") as Address;
   const adapters = await getActiveAdapters();
@@ -256,19 +292,20 @@ const checkRateOptimization = async () => {
 
   if (allAdapters.length < 2) return;
 
-  // Get rates for all registered adapters (including zero-weight ones)
   const rateMap = new Map<Address, bigint>();
   for (const addr of allAdapters) {
     try {
-      const net = await getNetRate(addr, asset);
+      const supplyRate = await readAdapter(addr, "getSupplyRate", [asset]) as bigint;
+      const borrowRate = await readAdapter(addr, "getBorrowRate", [asset]) as bigint;
+      const net = supplyRate - borrowRate;
       rateMap.set(addr, net);
-      console.log(`[keeper:rates] adapter ${addr} net rate: ${net}`);
+      console.log(`[tier2:rates] adapter ${addr} net rate: ${net}`);
     } catch {
-      console.log(`[keeper:rates] adapter ${addr} rate check failed, skipping`);
+      console.log(`[tier2:rates] adapter ${addr} rate check failed, skipping`);
     }
   }
 
-  // Find the best adapter
+  // Find best adapter
   let bestAdapter: Address | null = null;
   let bestRate = -Infinity;
   for (const [addr, rate] of rateMap) {
@@ -281,10 +318,7 @@ const checkRateOptimization = async () => {
 
   if (!bestAdapter) return;
 
-  // Check if shifting weight toward best adapter is worthwhile
   const currentBestWeight = adapters.find(a => a.address === bestAdapter)?.weight ?? 0n;
-
-  // If best adapter already has most weight, skip
   if (currentBestWeight >= 8000n) return;
 
   // Find worst-performing active adapter
@@ -312,9 +346,8 @@ const checkRateOptimization = async () => {
 
   if (shift === 0n) return;
 
-  console.log(`[keeper:rates] shifting ${shift} bps from ${worstAdapter} to ${bestAdapter}`);
+  console.log(`[tier2:rates] shifting ${shift} bps from ${worstAdapter} to ${bestAdapter}`);
 
-  // Build new weights
   const newAdapters: Address[] = [];
   const newWeights: bigint[] = [];
   for (const { address: addr, weight } of adapters) {
@@ -332,16 +365,13 @@ const checkRateOptimization = async () => {
   if (!adapters.find(a => a.address === bestAdapter)) {
     newAdapters.push(bestAdapter);
     newWeights.push(shift);
-    // Adjust worst adapter
     const worstIdx = newAdapters.indexOf(worstAdapter!);
     if (worstIdx >= 0) {
       newWeights[worstIdx] = worstWeight - shift;
     }
   }
 
-  await executeSetWeights(newAdapters, newWeights);
-  await executeRebalance();
-  lastMigrationTime = Date.now();
+  await callSetWeights(newAdapters, newWeights);
 };
 
 // ─── Scheduling ──────────────────────────────────────────────
@@ -352,7 +382,7 @@ const schedule = (name: string, fn: () => Promise<void>, intervalMs: number) => 
     try {
       await fn();
     } catch (err) {
-      console.error(`[keeper:${name}] error:`, err);
+      console.error(`[${name}] error:`, err);
     }
   };
   void wrapped();
@@ -364,12 +394,15 @@ const schedule = (name: string, fn: () => Promise<void>, intervalMs: number) => 
 export const startKeeper = () => {
   running = true;
   console.log(`[keeper] started — vault: ${vault}`);
-  console.log(`[keeper] keeper address: ${account.address}`);
+  console.log(`[keeper] caller address: ${account.address}`);
 
-  schedule("healthCheck", checkHealthFactor, config.healthCheckInterval);
-  schedule("deployIdle", checkAndDeployIdle, config.deployIdleInterval);
-  schedule("periodicRebalance", periodicRebalance, config.periodicRebalanceInterval);
-  schedule("rateOptimize", checkRateOptimization, config.rateCheckInterval);
+  // Tier 1 — permissionless ops (anyone can call, conditions checked on-chain)
+  schedule("tier1:healthCheck", checkHealthFactor, config.healthCheckInterval);
+  schedule("tier1:deployIdle", checkAndDeployIdle, config.deployIdleInterval);
+  schedule("tier1:rollover", checkMaturedAdapters, config.deployIdleInterval);
+
+  // Tier 2 — strategist ops (requires strategist role)
+  schedule("tier2:rateOptimize", checkRateOptimization, config.rateCheckInterval);
 };
 
 export const stopKeeper = () => {

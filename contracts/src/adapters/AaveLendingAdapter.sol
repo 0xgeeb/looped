@@ -171,6 +171,16 @@ contract AaveLendingAdapter is ILendingAdapter, Ownable {
         return variableBorrowRate / 1e9;
     }
 
+    /// @notice Non-PT adapter, no expiry.
+    function getExpiry() external pure returns (uint256) {
+        return 0;
+    }
+
+    /// @notice Non-PT adapter, never matured.
+    function isMatured() external pure returns (bool) {
+        return false;
+    }
+
     /*//////////////////////////////////////////////////////////////
                               INTERNAL
     //////////////////////////////////////////////////////////////*/

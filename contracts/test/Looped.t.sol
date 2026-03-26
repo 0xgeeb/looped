@@ -15,7 +15,7 @@ contract LoopedTest is Test {
 
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
-    address keeper = makeAddr("keeper");
+    address strategist = makeAddr("strategist");
 
     uint256 constant INITIAL_BALANCE = 100_000e18;
 
@@ -43,7 +43,7 @@ contract LoopedTest is Test {
         w[0] = 10000;
         vault.setAdapterWeights(a, w);
 
-        vault.setKeeper(keeper);
+        vault.setStrategist(strategist);
 
         // Fund users
         token.mint(alice, INITIAL_BALANCE);
@@ -71,13 +71,14 @@ contract LoopedTest is Test {
         assertEq(adapter.collateral(address(token)), 0, "no collateral yet");
     }
 
-    function test_deployIdle() public {
+    function test_deployIdlePermissionless() public {
         uint256 depositAmt = 1000e18;
 
         vm.prank(alice);
         vault.deposit(depositAmt, alice);
 
-        vm.prank(keeper);
+        // Anyone can call deployIdle
+        vm.prank(bob);
         vault.deployIdle();
 
         uint256 idle = token.balanceOf(address(vault));
@@ -90,16 +91,17 @@ contract LoopedTest is Test {
         assertEq(vault.totalAssets(), depositAmt, "total assets preserved");
     }
 
-    function test_deployIdleSkipsWhenBelowBuffer() public {
-        vault.setTargetBuffer(2000); // 20%
-
+    function test_deployIdleRevertsWhenBelowBuffer() public {
+        // Small deposit that stays below buffer
         vm.prank(alice);
-        vault.deposit(100e18, alice);
+        vault.deposit(1e18, alice);
 
-        vm.prank(keeper);
+        // Deploy once to get below buffer
         vault.deployIdle();
 
-        assertGt(adapter.collateral(address(token)), 0, "should deploy excess over buffer");
+        // Second call should revert — no excess idle
+        vm.expectRevert(Looped.ConditionNotMet.selector);
+        vault.deployIdle();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -124,7 +126,6 @@ contract LoopedTest is Test {
         vm.prank(alice);
         vault.deposit(depositAmt, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
 
         vm.prank(alice);
@@ -139,7 +140,6 @@ contract LoopedTest is Test {
         vm.prank(alice);
         vault.deposit(depositAmt, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
 
         uint256 shares = vault.balanceOf(alice);
@@ -221,7 +221,6 @@ contract LoopedTest is Test {
         vm.prank(alice);
         uint256 shares = vault.deposit(depositAmt, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
 
         adapter.simulateYield(address(token), 50e18);
@@ -239,36 +238,47 @@ contract LoopedTest is Test {
                         REBALANCE TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_rebalance() public {
+    function test_rebalancePermissionless() public {
         vm.prank(alice);
         vault.deposit(1000e18, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
+
+        // Set adapter HF below trigger to allow rebalance
+        adapter.setHealthFactor(1.2e18); // below default trigger of 1.3e18
 
         uint256 totalBefore = vault.totalAssets();
 
-        vm.prank(keeper);
+        // Anyone can call rebalance when condition met
+        vm.prank(bob);
         vault.rebalance();
 
         assertEq(vault.totalAssets(), totalBefore, "total assets unchanged after rebalance");
+    }
 
-        uint256 idle = token.balanceOf(address(vault));
-        uint256 bufferTarget = vault.totalAssets() * vault.targetBuffer() / 10000;
-        assertApproxEqAbs(idle, bufferTarget, 1e18, "buffer maintained after rebalance");
+    function test_rebalanceRevertsWhenNotNeeded() public {
+        vm.prank(alice);
+        vault.deposit(1000e18, alice);
+
+        vault.deployIdle();
+
+        // Default mock HF is type(uint256).max, well above trigger
+        vm.expectRevert(Looped.ConditionNotMet.selector);
+        vault.rebalance();
     }
 
     function test_rebalanceRefillsBuffer() public {
         vm.prank(alice);
         vault.deposit(1000e18, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
 
         vm.prank(alice);
         vault.withdraw(40e18, alice, alice);
 
-        vm.prank(keeper);
+        // Set adapter HF below trigger
+        adapter.setHealthFactor(1.2e18);
+
         vault.rebalance();
 
         uint256 idle = token.balanceOf(address(vault));
@@ -304,7 +314,6 @@ contract LoopedTest is Test {
     function test_cannotRemoveAdapterWithWeight() public {
         vault.addAdapter(address(adapter2));
 
-        // Set weights so adapter2 has weight
         ILendingAdapter[] memory a = new ILendingAdapter[](2);
         uint256[] memory w = new uint256[](2);
         a[0] = ILendingAdapter(address(adapter));
@@ -370,7 +379,6 @@ contract LoopedTest is Test {
         vm.prank(alice);
         vault.deposit(1000e18, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
 
         // Both adapters should have collateral
@@ -395,7 +403,6 @@ contract LoopedTest is Test {
         vm.prank(alice);
         vault.deposit(1000e18, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
 
         // Simulate yield on both adapters
@@ -416,27 +423,24 @@ contract LoopedTest is Test {
         w[1] = 5000;
         vault.setAdapterWeights(a, w);
 
-        // adapter has worse net rate (supply 1% - borrow 2% = -1%)
+        // adapter has worse net rate
         adapter.setSupplyRate(0.01e18);
         adapter.setBorrowRate(0.02e18);
-        // adapter2 has better net rate (supply 5% - borrow 1% = 4%)
+        // adapter2 has better net rate
         adapter2.setSupplyRate(0.05e18);
         adapter2.setBorrowRate(0.01e18);
 
         vm.prank(alice);
         vault.deposit(1000e18, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
 
         uint256 adapter1ColBefore = adapter.collateral(address(token));
         uint256 adapter2ColBefore = adapter2.collateral(address(token));
 
-        // Withdraw enough to require deloop
         vm.prank(alice);
         vault.withdraw(200e18, alice, alice);
 
-        // Worst-rate adapter (adapter) should have shrunk more
         uint256 adapter1ColAfter = adapter.collateral(address(token));
         uint256 adapter2ColAfter = adapter2.collateral(address(token));
 
@@ -460,12 +464,13 @@ contract LoopedTest is Test {
         vm.prank(alice);
         vault.deposit(1000e18, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
 
         uint256 totalBefore = vault.totalAssets();
 
-        vm.prank(keeper);
+        // Set adapter HF below trigger
+        adapter.setHealthFactor(1.2e18);
+
         vault.rebalance();
 
         assertEq(vault.totalAssets(), totalBefore, "total assets unchanged");
@@ -487,7 +492,6 @@ contract LoopedTest is Test {
         vm.prank(alice);
         vault.deposit(1000e18, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
 
         vault.emergencyDeleverage();
@@ -505,12 +509,11 @@ contract LoopedTest is Test {
         vm.prank(alice);
         vault.deposit(1000e18, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
 
         uint256 totalBefore = vault.totalAssets();
 
-        vm.prank(keeper);
+        vm.prank(strategist);
         vault.migrateAdapter(ILendingAdapter(address(adapter)), ILendingAdapter(address(adapter2)));
 
         assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter))), 0, "old adapter weight zeroed");
@@ -523,7 +526,7 @@ contract LoopedTest is Test {
     function test_migrateAdapterRejectsUnregistered() public {
         MockLendingAdapter unknown = new MockLendingAdapter(address(vault));
 
-        vm.prank(keeper);
+        vm.prank(strategist);
         vm.expectRevert(Looped.AdapterNotRegistered.selector);
         vault.migrateAdapter(ILendingAdapter(address(adapter)), ILendingAdapter(address(unknown)));
     }
@@ -532,13 +535,109 @@ contract LoopedTest is Test {
         vm.prank(alice);
         vault.deposit(1000e18, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
 
         (uint256 col, uint256 dbt, uint256 weightBps) = vault.getAdapterPosition(ILendingAdapter(address(adapter)));
         assertGt(col, 0, "collateral > 0");
         assertGt(dbt, 0, "debt > 0");
         assertEq(weightBps, 10000, "weight is 100%");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                      ROLLOVER TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_rolloverToIdleMaturedAdapter() public {
+        // Warp to a reasonable time, then set expiry in the past
+        vm.warp(1000);
+        adapter.setExpiry(block.timestamp - 1);
+
+        vm.prank(alice);
+        vault.deposit(1000e18, alice);
+
+        vault.deployIdle();
+
+        uint256 totalBefore = vault.totalAssets();
+
+        // Anyone can call rolloverToIdle for matured adapters
+        vm.prank(bob);
+        vault.rolloverToIdle(ILendingAdapter(address(adapter)));
+
+        // Adapter should be fully delooped
+        assertEq(adapter.collateral(address(token)), 0, "collateral should be zero");
+        assertEq(adapter.debt(address(token)), 0, "debt should be zero");
+        // Weight should be zeroed
+        assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter))), 0, "weight zeroed");
+        assertEq(vault.totalAssets(), totalBefore, "total assets preserved");
+    }
+
+    function test_rolloverToIdleRevertsWhenNotMatured() public {
+        // Default expiry is 0 for mock, which means non-PT adapter
+        vm.prank(alice);
+        vault.deposit(1000e18, alice);
+
+        vault.deployIdle();
+
+        vm.expectRevert(Looped.NotMatured.selector);
+        vault.rolloverToIdle(ILendingAdapter(address(adapter)));
+    }
+
+    function test_rolloverToIdleRedistributesWeight() public {
+        vault.addAdapter(address(adapter2));
+
+        ILendingAdapter[] memory a = new ILendingAdapter[](2);
+        uint256[] memory w = new uint256[](2);
+        a[0] = ILendingAdapter(address(adapter));
+        a[1] = ILendingAdapter(address(adapter2));
+        w[0] = 6000;
+        w[1] = 4000;
+        vault.setAdapterWeights(a, w);
+
+        // Mature adapter1
+        vm.warp(1000);
+        adapter.setExpiry(block.timestamp - 1);
+
+        vm.prank(alice);
+        vault.deposit(1000e18, alice);
+
+        vault.deployIdle();
+
+        vault.rolloverToIdle(ILendingAdapter(address(adapter)));
+
+        // adapter2 should now have 100% weight
+        assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter))), 0, "matured adapter weight zeroed");
+        assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter2))), 10000, "remaining adapter got full weight");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    STRATEGIST ACCESS TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_migrateRequiresStrategist() public {
+        vault.addAdapter(address(adapter2));
+
+        vm.prank(alice);
+        vault.deposit(1000e18, alice);
+
+        vault.deployIdle();
+
+        vm.prank(alice);
+        vm.expectRevert(Looped.OnlyStrategist.selector);
+        vault.migrateAdapter(ILendingAdapter(address(adapter)), ILendingAdapter(address(adapter2)));
+    }
+
+    function test_ownerCanActAsStrategist() public {
+        vault.addAdapter(address(adapter2));
+
+        vm.prank(alice);
+        vault.deposit(1000e18, alice);
+
+        vault.deployIdle();
+
+        // Owner (this contract) can call strategist functions
+        vault.migrateAdapter(ILendingAdapter(address(adapter)), ILendingAdapter(address(adapter2)));
+
+        assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter2))), 10000);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -549,7 +648,6 @@ contract LoopedTest is Test {
         vm.prank(alice);
         vault.deposit(1000e18, alice);
 
-        vm.prank(keeper);
         vault.deployIdle();
 
         vault.emergencyDeleverage();
@@ -589,24 +687,6 @@ contract LoopedTest is Test {
         vault.emergencyDeleverage();
     }
 
-    function test_onlyKeeperRebalance() public {
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vm.prank(alice);
-        vm.expectRevert(Looped.OnlyKeeper.selector);
-        vault.rebalance();
-    }
-
-    function test_onlyKeeperDeployIdle() public {
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vm.prank(alice);
-        vm.expectRevert(Looped.OnlyKeeper.selector);
-        vault.deployIdle();
-    }
-
     /*//////////////////////////////////////////////////////////////
                           PARAM SETTER TESTS
     //////////////////////////////////////////////////////////////*/
@@ -621,8 +701,8 @@ contract LoopedTest is Test {
         vault.setMinHealthFactor(1.2e18);
         assertEq(vault.minHealthFactor(), 1.2e18);
 
-        vault.setKeeper(bob);
-        assertEq(vault.keeper(), bob);
+        vault.setStrategist(bob);
+        assertEq(vault.strategist(), bob);
 
         vault.setTargetBuffer(1000);
         assertEq(vault.targetBuffer(), 1000);
@@ -632,6 +712,9 @@ contract LoopedTest is Test {
 
         vault.setRebalanceTriggerHF(1.5e18);
         assertEq(vault.rebalanceTriggerHF(), 1.5e18);
+
+        vault.setMaxRolloverSlippageBps(100);
+        assertEq(vault.maxRolloverSlippageBps(), 100);
     }
 
     function test_setTargetLtvMaxCap() public {
@@ -647,6 +730,11 @@ contract LoopedTest is Test {
     function test_setWithdrawalFeeMaxCap() public {
         vm.expectRevert(Looped.InvalidParams.selector);
         vault.setWithdrawalFeeBps(101);
+    }
+
+    function test_setMaxRolloverSlippageMaxCap() public {
+        vm.expectRevert(Looped.InvalidParams.selector);
+        vault.setMaxRolloverSlippageBps(501);
     }
 
     /*//////////////////////////////////////////////////////////////

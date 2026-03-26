@@ -13,4 +13,10 @@ interface ILendingAdapter {
     function getMaxLtv(address asset) external view returns (uint256);
     function getSupplyRate(address asset) external view returns (uint256);
     function getBorrowRate(address asset) external view returns (uint256);
+
+    /// @notice Returns maturity timestamp for PT-based adapters, 0 for non-PT adapters
+    function getExpiry() external view returns (uint256);
+
+    /// @notice Returns true if adapter holds matured PTs (block.timestamp >= expiry)
+    function isMatured() external view returns (bool);
 }

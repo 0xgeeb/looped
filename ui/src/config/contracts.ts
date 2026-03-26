@@ -23,7 +23,7 @@ export const vaultAbi = parseAbi([
   "function withdrawalFeeBps() view returns (uint256)",
   "function minHealthFactor() view returns (uint256)",
   "function paused() view returns (bool)",
-  "function keeper() view returns (address)",
+  "function strategist() view returns (address)",
   "function getAdapters() view returns (address[])",
   "function getAdapterPosition(address) view returns (uint256 collateral, uint256 debt, uint256 weightBps)",
   "function adapterWeightBps(address) view returns (uint256)",
@@ -47,6 +47,8 @@ export const adapterAbi = parseAbi([
   "function getHealthFactor() view returns (uint256)",
   "function getSupplyRate(address asset) view returns (uint256)",
   "function getBorrowRate(address asset) view returns (uint256)",
+  "function getExpiry() view returns (uint256)",
+  "function isMatured() view returns (bool)",
 ]);
 
 export const vaultEventAbi = parseAbi([
@@ -57,4 +59,6 @@ export const vaultEventAbi = parseAbi([
   "event IdleDeployed(uint256 amount)",
   "event WeightsUpdated()",
   "event AdapterMigrated(address indexed from, address indexed to)",
+  "event RolledOverToIdle(address indexed adapter, uint256 amount)",
+  "event RolledInto(address indexed adapter, address indexed pendleMarket)",
 ]);

@@ -57,9 +57,9 @@ contract Deploy is Script {
         weights[0] = 10000; // 100% to Aave
         vault.setAdapterWeights(adapters, weights);
 
-        // 4. Set keeper (deployer for now, change after)
-        vault.setKeeper(msg.sender);
-        console.log("Keeper set to deployer:", msg.sender);
+        // 4. Set strategist (deployer for now, change after)
+        vault.setStrategist(msg.sender);
+        console.log("Strategist set to deployer:", msg.sender);
 
         vm.stopBroadcast();
     }

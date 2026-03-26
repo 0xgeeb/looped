@@ -50,10 +50,14 @@ contract MockLendingAdapter is ILendingAdapter {
         return debt[asset];
     }
 
-    function getHealthFactor() external pure returns (uint256) {
-        // Simplified: returns 1e18 scaled health factor
-        // In reality this depends on oracle prices, but for same-asset loops it simplifies
-        return type(uint256).max; // healthy by default in mock
+    uint256 public mockHealthFactor = type(uint256).max;
+
+    function getHealthFactor() external view returns (uint256) {
+        return mockHealthFactor;
+    }
+
+    function setHealthFactor(uint256 _hf) external {
+        mockHealthFactor = _hf;
     }
 
     function getMaxLtv(address asset) external view returns (uint256) {
@@ -81,8 +85,22 @@ contract MockLendingAdapter is ILendingAdapter {
         borrowRate = _rate;
     }
 
+    uint256 public mockExpiry;
+
     function simulateYield(address asset, uint256 amount) external {
         MockERC20(asset).mint(address(this), amount);
         collateral[asset] += amount;
+    }
+
+    function getExpiry() external view returns (uint256) {
+        return mockExpiry;
+    }
+
+    function isMatured() external view returns (bool) {
+        return mockExpiry > 0 && block.timestamp >= mockExpiry;
+    }
+
+    function setExpiry(uint256 _expiry) external {
+        mockExpiry = _expiry;
     }
 }
