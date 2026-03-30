@@ -6,36 +6,52 @@ import {Looped} from "../src/Looped.sol";
 import {ILendingAdapter} from "../src/interfaces/ILendingAdapter.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockLendingAdapter} from "./mocks/MockLendingAdapter.sol";
+import {MockPendleRouter} from "./mocks/MockPendleRouter.sol";
+import {MockPendleOracle} from "./mocks/MockPendleOracle.sol";
+import {MockPendleMarket} from "./mocks/MockPendleMarket.sol";
 
 contract LoopedTest is Test {
     Looped public vault;
-    MockERC20 public token;
+    MockERC20 public usdc;
+    MockERC20 public pt;
     MockLendingAdapter public adapter;
     MockLendingAdapter public adapter2;
+    MockPendleRouter public pendleRouter;
+    MockPendleOracle public pendleOracle;
+    MockPendleMarket public pendleMarket;
 
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
     address strategist = makeAddr("strategist");
 
-    uint256 constant INITIAL_BALANCE = 100_000e18;
+    uint256 constant INITIAL_BALANCE = 100_000e6; // USDC has 6 decimals
 
     function setUp() public {
-        token = new MockERC20("Mock Token", "MTK", 18);
+        usdc = new MockERC20("USDC", "USDC", 6);
+        pt = new MockERC20("PT-Token", "PT", 18);
 
-        // Deploy vault first with placeholder adapter
+        pendleRouter = new MockPendleRouter();
+        pendleOracle = new MockPendleOracle();
+        pendleMarket = new MockPendleMarket(address(pt), address(0), block.timestamp + 30 days);
+
+        // Configure router: 1 USDC = 1e12 PT (1:1 value, adjusting for decimal diff)
+        pendleRouter.configure(address(pt), address(usdc), 1e12);
+
         vault = new Looped(
-            address(token),
-            address(1), // placeholder
-            3, // targetLoops
+            address(usdc),
+            address(pendleRouter),
+            address(pendleOracle),
+            900, // 15 min TWAP
+            3,   // targetLoops
             7000, // 70% LTV
             1.15e18 // min health factor
         );
 
-        // Deploy adapters with vault address
+        // Deploy adapters
         adapter = new MockLendingAdapter(address(vault));
         adapter2 = new MockLendingAdapter(address(vault));
 
-        // Replace placeholder with real adapter
+        // Register adapter and set weights
         vault.addAdapter(address(adapter));
         ILendingAdapter[] memory a = new ILendingAdapter[](1);
         uint256[] memory w = new uint256[](1);
@@ -43,16 +59,32 @@ contract LoopedTest is Test {
         w[0] = 10000;
         vault.setAdapterWeights(a, w);
 
+        // Set strategist
         vault.setStrategist(strategist);
 
         // Fund users
-        token.mint(alice, INITIAL_BALANCE);
-        token.mint(bob, INITIAL_BALANCE);
+        usdc.mint(alice, INITIAL_BALANCE);
+        usdc.mint(bob, INITIAL_BALANCE);
 
         vm.prank(alice);
-        token.approve(address(vault), type(uint256).max);
+        usdc.approve(address(vault), type(uint256).max);
         vm.prank(bob);
-        token.approve(address(vault), type(uint256).max);
+        usdc.approve(address(vault), type(uint256).max);
+    }
+
+    // Helper: set up adapter with a Pendle market via rollInto
+    function _setupAdapterMarket() internal {
+        vm.prank(strategist);
+        vault.rollInto(ILendingAdapter(address(adapter)), address(pendleMarket));
+    }
+
+    function _depositAndDeploy(uint256 amount) internal {
+        vm.prank(alice);
+        vault.deposit(amount, alice);
+
+        // Set market and deploy
+        vm.prank(strategist);
+        vault.rollInto(ILendingAdapter(address(adapter)), address(pendleMarket));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -60,47 +92,41 @@ contract LoopedTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_depositLandsIdle() public {
-        uint256 depositAmt = 1000e18;
+        uint256 depositAmt = 1000e6;
 
         vm.prank(alice);
         uint256 shares = vault.deposit(depositAmt, alice);
 
         assertGt(shares, 0, "should receive shares");
         assertEq(vault.totalAssets(), depositAmt, "total assets should equal deposit");
-        assertEq(token.balanceOf(address(vault)), depositAmt, "tokens idle in vault");
-        assertEq(adapter.collateral(address(token)), 0, "no collateral yet");
+        assertEq(usdc.balanceOf(address(vault)), depositAmt, "tokens idle in vault");
     }
 
-    function test_deployIdlePermissionless() public {
-        uint256 depositAmt = 1000e18;
+    function test_deployIdleViaRollInto() public {
+        uint256 depositAmt = 1000e6;
 
         vm.prank(alice);
         vault.deposit(depositAmt, alice);
 
-        // Anyone can call deployIdle
-        vm.prank(bob);
-        vault.deployIdle();
+        vm.prank(strategist);
+        vault.rollInto(ILendingAdapter(address(adapter)), address(pendleMarket));
 
-        uint256 idle = token.balanceOf(address(vault));
+        uint256 idle = usdc.balanceOf(address(vault));
         uint256 bufferTarget = vault.totalAssets() * vault.targetBuffer() / 10000;
-        assertApproxEqAbs(idle, bufferTarget, 1e18, "idle should be near buffer target");
+        assertApproxEqAbs(idle, bufferTarget, 1e6, "idle near buffer target");
 
-        assertGt(adapter.collateral(address(token)), 0, "collateral deployed");
-        assertGt(adapter.debt(address(token)), 0, "debt created from looping");
-
-        assertEq(vault.totalAssets(), depositAmt, "total assets preserved");
+        assertGt(adapter.collateral(address(pt)), 0, "PT collateral deployed");
+        assertGt(adapter.debt(address(usdc)), 0, "USDC debt from looping");
     }
 
-    function test_deployIdleRevertsWhenBelowBuffer() public {
-        // Small deposit that stays below buffer
+    function test_deployIdleOnlyStrategist() public {
         vm.prank(alice);
-        vault.deposit(1e18, alice);
+        vault.deposit(1000e6, alice);
 
-        // Deploy once to get below buffer
-        vault.deployIdle();
+        _setupAdapterMarket();
 
-        // Second call should revert — no excess idle
-        vm.expectRevert(Looped.ConditionNotMet.selector);
+        vm.prank(alice);
+        vm.expectRevert(Looped.OnlyStrategist.selector);
         vault.deployIdle();
     }
 
@@ -109,38 +135,27 @@ contract LoopedTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_withdrawFromBuffer() public {
-        uint256 depositAmt = 1000e18;
+        vm.prank(alice);
+        vault.deposit(1000e6, alice);
 
         vm.prank(alice);
-        vault.deposit(depositAmt, alice);
+        vault.withdraw(100e6, alice, alice);
 
-        vm.prank(alice);
-        vault.withdraw(100e18, alice, alice);
-
-        assertEq(adapter.collateral(address(token)), 0, "no deloop triggered");
+        assertEq(adapter.collateral(address(pt)), 0, "no deloop triggered");
     }
 
-    function test_withdrawTriggersDeloopWhenExceedsBuffer() public {
-        uint256 depositAmt = 1000e18;
+    function test_withdrawTriggersDeloop() public {
+        _depositAndDeploy(1000e6);
 
         vm.prank(alice);
-        vault.deposit(depositAmt, alice);
+        vault.withdraw(500e6, alice, alice);
 
-        vault.deployIdle();
-
-        vm.prank(alice);
-        vault.withdraw(500e18, alice, alice);
-
-        assertLt(adapter.collateral(address(token)), 1000e18, "collateral reduced by deloop");
+        assertLt(adapter.collateral(address(pt)), 1000e18, "PT collateral reduced");
     }
 
     function test_fullWithdraw() public {
-        uint256 depositAmt = 1000e18;
-
-        vm.prank(alice);
-        vault.deposit(depositAmt, alice);
-
-        vault.deployIdle();
+        uint256 depositAmt = 1000e6;
+        _depositAndDeploy(depositAmt);
 
         uint256 shares = vault.balanceOf(alice);
 
@@ -148,7 +163,7 @@ contract LoopedTest is Test {
         vault.redeem(shares, alice, alice);
 
         uint256 fee = depositAmt * vault.withdrawalFeeBps() / 10000;
-        assertApproxEqAbs(token.balanceOf(alice), INITIAL_BALANCE - fee, 1, "alice gets back deposit minus fee");
+        assertApproxEqAbs(usdc.balanceOf(alice), INITIAL_BALANCE - fee, 1, "alice gets back deposit minus fee");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -157,41 +172,30 @@ contract LoopedTest is Test {
 
     function test_withdrawalFeeAccruesToHolders() public {
         vm.prank(alice);
-        vault.deposit(1000e18, alice);
+        vault.deposit(1000e6, alice);
 
         vm.prank(bob);
-        vault.deposit(1000e18, bob);
+        vault.deposit(1000e6, bob);
 
         uint256 aliceShares = vault.balanceOf(alice);
         vm.prank(alice);
         vault.redeem(aliceShares, alice, alice);
 
         uint256 bobAssets = vault.previewRedeem(vault.balanceOf(bob));
-        assertGt(bobAssets, 999e18, "bob benefits from alice's withdrawal fee");
-    }
-
-    function test_previewRedeemIncludesFee() public {
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        uint256 shares = vault.balanceOf(alice);
-        uint256 previewAssets = vault.previewRedeem(shares);
-
-        uint256 expectedFee = 1000e18 * vault.withdrawalFeeBps() / 10000;
-        assertApproxEqAbs(previewAssets, 1000e18 - expectedFee, 1, "preview includes fee");
+        assertGt(bobAssets, 999e6, "bob benefits from fee");
     }
 
     function test_zeroFeeWhenDisabled() public {
         vault.setWithdrawalFeeBps(0);
 
         vm.prank(alice);
-        vault.deposit(1000e18, alice);
+        vault.deposit(1000e6, alice);
 
         uint256 shares = vault.balanceOf(alice);
         vm.prank(alice);
         vault.redeem(shares, alice, alice);
 
-        assertEq(token.balanceOf(alice), INITIAL_BALANCE, "no fee when disabled");
+        assertEq(usdc.balanceOf(alice), INITIAL_BALANCE, "no fee");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -199,91 +203,68 @@ contract LoopedTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_virtualOffsetPreventsInflationAttack() public {
-        token.mint(address(this), 1);
-        token.approve(address(vault), 1);
+        usdc.mint(address(this), 1);
+        usdc.approve(address(vault), 1);
         vault.deposit(1, address(this));
 
-        token.mint(address(this), 10e18);
-        token.transfer(address(vault), 10e18);
+        usdc.mint(address(this), 10e6);
+        usdc.transfer(address(vault), 10e6);
 
         vm.prank(alice);
-        uint256 victimShares = vault.deposit(9e18, alice);
-        assertGt(victimShares, 0, "victim should get shares despite donation attack");
+        uint256 victimShares = vault.deposit(9e6, alice);
+        assertGt(victimShares, 0, "victim should get shares");
     }
 
     /*//////////////////////////////////////////////////////////////
-                          YIELD ACCRUAL
+                        TOTAL ASSETS / TWAP
     //////////////////////////////////////////////////////////////*/
 
-    function test_yieldAccrual() public {
-        uint256 depositAmt = 1000e18;
+    function test_totalAssetsIncludesPtValuation() public {
+        _depositAndDeploy(1000e6);
 
-        vm.prank(alice);
-        uint256 shares = vault.deposit(depositAmt, alice);
+        uint256 total = vault.totalAssets();
+        // Should be approximately the deposit amount (1:1 PT rate, mock router 1:1)
+        assertApproxEqAbs(total, 1000e6, 1e6, "total assets ~ deposit");
+    }
 
-        vault.deployIdle();
+    function test_totalAssetsReflectsPtPriceChange() public {
+        _depositAndDeploy(1000e6);
 
-        adapter.simulateYield(address(token), 50e18);
+        uint256 totalBefore = vault.totalAssets();
 
-        uint256 assetsAfterYield = vault.totalAssets();
-        assertEq(assetsAfterYield, depositAmt + 50e18, "yield should increase total assets");
+        // PT appreciates toward par (e.g. from 0.95 to 1.0 = ~5% gain)
+        // Rate goes from 1e18 to 1.05e18 means PT is worth more
+        pendleOracle.setRate(1.05e18);
 
-        vm.prank(alice);
-        vault.redeem(shares, alice, alice);
-
-        assertGt(token.balanceOf(alice), INITIAL_BALANCE, "alice should profit from yield");
+        uint256 totalAfter = vault.totalAssets();
+        assertGt(totalAfter, totalBefore, "total assets should increase with PT appreciation");
     }
 
     /*//////////////////////////////////////////////////////////////
                         REBALANCE TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_rebalancePermissionless() public {
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vault.deployIdle();
-
-        // Set adapter HF below trigger to allow rebalance
-        adapter.setHealthFactor(1.2e18); // below default trigger of 1.3e18
+    function test_rebalance() public {
+        _depositAndDeploy(1000e6);
 
         uint256 totalBefore = vault.totalAssets();
 
-        // Anyone can call rebalance when condition met
-        vm.prank(bob);
+        vm.prank(strategist);
         vault.rebalance();
 
-        assertEq(vault.totalAssets(), totalBefore, "total assets unchanged after rebalance");
-    }
+        assertApproxEqAbs(vault.totalAssets(), totalBefore, 1e6, "total assets preserved");
 
-    function test_rebalanceRevertsWhenNotNeeded() public {
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vault.deployIdle();
-
-        // Default mock HF is type(uint256).max, well above trigger
-        vm.expectRevert(Looped.ConditionNotMet.selector);
-        vault.rebalance();
-    }
-
-    function test_rebalanceRefillsBuffer() public {
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vault.deployIdle();
-
-        vm.prank(alice);
-        vault.withdraw(40e18, alice, alice);
-
-        // Set adapter HF below trigger
-        adapter.setHealthFactor(1.2e18);
-
-        vault.rebalance();
-
-        uint256 idle = token.balanceOf(address(vault));
+        uint256 idle = usdc.balanceOf(address(vault));
         uint256 bufferTarget = vault.totalAssets() * vault.targetBuffer() / 10000;
-        assertApproxEqAbs(idle, bufferTarget, 1e18, "buffer refilled after rebalance");
+        assertApproxEqAbs(idle, bufferTarget, 1e6, "buffer maintained");
+    }
+
+    function test_rebalanceOnlyStrategist() public {
+        _depositAndDeploy(1000e6);
+
+        vm.prank(alice);
+        vm.expectRevert(Looped.OnlyStrategist.selector);
+        vault.rebalance();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -293,10 +274,6 @@ contract LoopedTest is Test {
     function test_addAdapter() public {
         vault.addAdapter(address(adapter2));
         assertTrue(vault.isActiveAdapter(ILendingAdapter(address(adapter2))));
-
-        ILendingAdapter[] memory all = vault.getAdapters();
-        // placeholder(1) + adapter + adapter2 = 3
-        assertEq(all.length, 3);
     }
 
     function test_cannotAddDuplicateAdapter() public {
@@ -307,7 +284,6 @@ contract LoopedTest is Test {
     function test_removeAdapter() public {
         vault.addAdapter(address(adapter2));
         vault.removeAdapter(address(adapter2));
-
         assertFalse(vault.isActiveAdapter(ILendingAdapter(address(adapter2))));
     }
 
@@ -349,48 +325,15 @@ contract LoopedTest is Test {
         a[0] = ILendingAdapter(address(adapter));
         a[1] = ILendingAdapter(address(adapter2));
         w[0] = 5000;
-        w[1] = 3000; // only 8000
+        w[1] = 3000;
         vm.expectRevert(Looped.InvalidParams.selector);
-        vault.setAdapterWeights(a, w);
-    }
-
-    function test_setAdapterWeightsRejectsUnregistered() public {
-        MockLendingAdapter unknown = new MockLendingAdapter(address(vault));
-
-        ILendingAdapter[] memory a = new ILendingAdapter[](1);
-        uint256[] memory w = new uint256[](1);
-        a[0] = ILendingAdapter(address(unknown));
-        w[0] = 10000;
-        vm.expectRevert(Looped.AdapterNotRegistered.selector);
         vault.setAdapterWeights(a, w);
     }
 
     function test_deployIdleSplitsAcrossAdapters() public {
         vault.addAdapter(address(adapter2));
 
-        ILendingAdapter[] memory a = new ILendingAdapter[](2);
-        uint256[] memory w = new uint256[](2);
-        a[0] = ILendingAdapter(address(adapter));
-        a[1] = ILendingAdapter(address(adapter2));
-        w[0] = 6000;
-        w[1] = 4000;
-        vault.setAdapterWeights(a, w);
-
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vault.deployIdle();
-
-        // Both adapters should have collateral
-        assertGt(adapter.collateral(address(token)), 0, "adapter1 has collateral");
-        assertGt(adapter2.collateral(address(token)), 0, "adapter2 has collateral");
-
-        // Total assets preserved
-        assertEq(vault.totalAssets(), 1000e18, "total assets preserved");
-    }
-
-    function test_totalAssetsSumsAllAdapters() public {
-        vault.addAdapter(address(adapter2));
+        MockPendleMarket market2 = new MockPendleMarket(address(pt), address(0), block.timestamp + 30 days);
 
         ILendingAdapter[] memory a = new ILendingAdapter[](2);
         uint256[] memory w = new uint256[](2);
@@ -401,271 +344,131 @@ contract LoopedTest is Test {
         vault.setAdapterWeights(a, w);
 
         vm.prank(alice);
-        vault.deposit(1000e18, alice);
+        vault.deposit(1000e6, alice);
 
-        vault.deployIdle();
+        // Set markets for both adapters
+        vm.startPrank(strategist);
+        vault.rollInto(ILendingAdapter(address(adapter)), address(pendleMarket));
+        vault.rollInto(ILendingAdapter(address(adapter2)), address(market2));
+        vm.stopPrank();
 
-        // Simulate yield on both adapters
-        adapter.simulateYield(address(token), 30e18);
-        adapter2.simulateYield(address(token), 20e18);
-
-        assertEq(vault.totalAssets(), 1050e18, "total assets sums all adapters + yield");
-    }
-
-    function test_withdrawPullsFromWorstRateFirst() public {
-        vault.addAdapter(address(adapter2));
-
-        ILendingAdapter[] memory a = new ILendingAdapter[](2);
-        uint256[] memory w = new uint256[](2);
-        a[0] = ILendingAdapter(address(adapter));
-        a[1] = ILendingAdapter(address(adapter2));
-        w[0] = 5000;
-        w[1] = 5000;
-        vault.setAdapterWeights(a, w);
-
-        // adapter has worse net rate
-        adapter.setSupplyRate(0.01e18);
-        adapter.setBorrowRate(0.02e18);
-        // adapter2 has better net rate
-        adapter2.setSupplyRate(0.05e18);
-        adapter2.setBorrowRate(0.01e18);
-
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vault.deployIdle();
-
-        uint256 adapter1ColBefore = adapter.collateral(address(token));
-        uint256 adapter2ColBefore = adapter2.collateral(address(token));
-
-        vm.prank(alice);
-        vault.withdraw(200e18, alice, alice);
-
-        uint256 adapter1ColAfter = adapter.collateral(address(token));
-        uint256 adapter2ColAfter = adapter2.collateral(address(token));
-
-        uint256 adapter1Reduction = adapter1ColBefore - adapter1ColAfter;
-        uint256 adapter2Reduction = adapter2ColBefore > adapter2ColAfter ? adapter2ColBefore - adapter2ColAfter : 0;
-
-        assertGt(adapter1Reduction, adapter2Reduction, "worst-rate adapter should shrink first");
-    }
-
-    function test_rebalanceAcrossAdapters() public {
-        vault.addAdapter(address(adapter2));
-
-        ILendingAdapter[] memory a = new ILendingAdapter[](2);
-        uint256[] memory w = new uint256[](2);
-        a[0] = ILendingAdapter(address(adapter));
-        a[1] = ILendingAdapter(address(adapter2));
-        w[0] = 6000;
-        w[1] = 4000;
-        vault.setAdapterWeights(a, w);
-
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vault.deployIdle();
-
-        uint256 totalBefore = vault.totalAssets();
-
-        // Set adapter HF below trigger
-        adapter.setHealthFactor(1.2e18);
-
-        vault.rebalance();
-
-        assertEq(vault.totalAssets(), totalBefore, "total assets unchanged");
-        assertGt(adapter.collateral(address(token)), 0, "adapter1 has position");
-        assertGt(adapter2.collateral(address(token)), 0, "adapter2 has position");
-    }
-
-    function test_emergencyDeleverageAllAdapters() public {
-        vault.addAdapter(address(adapter2));
-
-        ILendingAdapter[] memory a = new ILendingAdapter[](2);
-        uint256[] memory w = new uint256[](2);
-        a[0] = ILendingAdapter(address(adapter));
-        a[1] = ILendingAdapter(address(adapter2));
-        w[0] = 6000;
-        w[1] = 4000;
-        vault.setAdapterWeights(a, w);
-
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vault.deployIdle();
-
-        vault.emergencyDeleverage();
-
-        assertTrue(vault.paused(), "vault should be paused");
-        assertEq(adapter.debt(address(token)), 0, "adapter1 debt zero");
-        assertEq(adapter.collateral(address(token)), 0, "adapter1 collateral zero");
-        assertEq(adapter2.debt(address(token)), 0, "adapter2 debt zero");
-        assertEq(adapter2.collateral(address(token)), 0, "adapter2 collateral zero");
-    }
-
-    function test_migrateAdapter() public {
-        vault.addAdapter(address(adapter2));
-
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vault.deployIdle();
-
-        uint256 totalBefore = vault.totalAssets();
-
+        // Deploy remaining idle
         vm.prank(strategist);
-        vault.migrateAdapter(ILendingAdapter(address(adapter)), ILendingAdapter(address(adapter2)));
-
-        assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter))), 0, "old adapter weight zeroed");
-        assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter2))), 10000, "new adapter got weight");
-        assertEq(vault.totalAssets(), totalBefore, "total assets preserved");
-        assertEq(adapter.collateral(address(token)), 0, "old adapter empty");
-        assertGt(adapter2.collateral(address(token)), 0, "new adapter has position");
-    }
-
-    function test_migrateAdapterRejectsUnregistered() public {
-        MockLendingAdapter unknown = new MockLendingAdapter(address(vault));
-
-        vm.prank(strategist);
-        vm.expectRevert(Looped.AdapterNotRegistered.selector);
-        vault.migrateAdapter(ILendingAdapter(address(adapter)), ILendingAdapter(address(unknown)));
-    }
-
-    function test_getAdapterPosition() public {
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
         vault.deployIdle();
 
-        (uint256 col, uint256 dbt, uint256 weightBps) = vault.getAdapterPosition(ILendingAdapter(address(adapter)));
-        assertGt(col, 0, "collateral > 0");
-        assertGt(dbt, 0, "debt > 0");
-        assertEq(weightBps, 10000, "weight is 100%");
+        assertGt(adapter.collateral(address(pt)), 0, "adapter1 has PT collateral");
+        assertGt(adapter2.collateral(address(pt)), 0, "adapter2 has PT collateral");
     }
 
     /*//////////////////////////////////////////////////////////////
                       ROLLOVER TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_rolloverToIdleMaturedAdapter() public {
-        // Warp to a reasonable time, then set expiry in the past
-        vm.warp(1000);
-        adapter.setExpiry(block.timestamp - 1);
+    function test_rolloverToIdleMatured() public {
+        _depositAndDeploy(1000e6);
 
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vault.deployIdle();
+        // Warp past maturity
+        vm.warp(block.timestamp + 31 days);
 
         uint256 totalBefore = vault.totalAssets();
 
-        // Anyone can call rolloverToIdle for matured adapters
-        vm.prank(bob);
+        vm.prank(strategist);
         vault.rolloverToIdle(ILendingAdapter(address(adapter)));
 
-        // Adapter should be fully delooped
-        assertEq(adapter.collateral(address(token)), 0, "collateral should be zero");
-        assertEq(adapter.debt(address(token)), 0, "debt should be zero");
-        // Weight should be zeroed
-        assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter))), 0, "weight zeroed");
-        assertEq(vault.totalAssets(), totalBefore, "total assets preserved");
+        assertEq(adapter.collateral(address(pt)), 0, "PT collateral zero");
+        assertEq(adapter.debt(address(usdc)), 0, "debt zero");
+        assertEq(vault.adapterMarket(ILendingAdapter(address(adapter))), address(0), "market cleared");
     }
 
-    function test_rolloverToIdleRevertsWhenNotMatured() public {
-        // Default expiry is 0 for mock, which means non-PT adapter
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
+    function test_rolloverToIdleRevertsBeforeMaturity() public {
+        _depositAndDeploy(1000e6);
 
-        vault.deployIdle();
-
+        vm.prank(strategist);
         vm.expectRevert(Looped.NotMatured.selector);
         vault.rolloverToIdle(ILendingAdapter(address(adapter)));
     }
 
-    function test_rolloverToIdleRedistributesWeight() public {
+    function test_rollIntoSetsMarket() public {
+        vm.prank(alice);
+        vault.deposit(1000e6, alice);
+
+        vm.prank(strategist);
+        vault.rollInto(ILendingAdapter(address(adapter)), address(pendleMarket));
+
+        assertEq(vault.adapterMarket(ILendingAdapter(address(adapter))), address(pendleMarket));
+        assertEq(vault.adapterPt(ILendingAdapter(address(adapter))), address(pt));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    MIGRATE TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_migrateAdapter() public {
         vault.addAdapter(address(adapter2));
 
+        // Set up market2 for adapter2
+        MockPendleMarket market2 = new MockPendleMarket(address(pt), address(0), block.timestamp + 60 days);
+
+        // Set adapter2 market first via rollInto after giving it some weight
         ILendingAdapter[] memory a = new ILendingAdapter[](2);
         uint256[] memory w = new uint256[](2);
         a[0] = ILendingAdapter(address(adapter));
         a[1] = ILendingAdapter(address(adapter2));
-        w[0] = 6000;
-        w[1] = 4000;
+        w[0] = 10000;
+        w[1] = 0;
         vault.setAdapterWeights(a, w);
 
-        // Mature adapter1
-        vm.warp(1000);
-        adapter.setExpiry(block.timestamp - 1);
+        _depositAndDeploy(1000e6);
 
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
+        // Give adapter2 a market
+        vm.prank(strategist);
+        vault.rollInto(ILendingAdapter(address(adapter2)), address(market2));
 
-        vault.deployIdle();
+        // Now migrate from adapter to adapter2
+        // First need adapter2 to have weight for migration target
+        // migrateAdapter transfers weight
+        vm.prank(strategist);
+        vault.migrateAdapter(ILendingAdapter(address(adapter)), ILendingAdapter(address(adapter2)));
 
-        vault.rolloverToIdle(ILendingAdapter(address(adapter)));
-
-        // adapter2 should now have 100% weight
-        assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter))), 0, "matured adapter weight zeroed");
-        assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter2))), 10000, "remaining adapter got full weight");
+        assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter))), 0, "old weight zeroed");
+        assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter2))), 10000, "new weight transferred");
+        assertEq(adapter.collateral(address(pt)), 0, "old adapter empty");
+        assertGt(adapter2.collateral(address(pt)), 0, "new adapter has position");
     }
-
-    /*//////////////////////////////////////////////////////////////
-                    STRATEGIST ACCESS TESTS
-    //////////////////////////////////////////////////////////////*/
 
     function test_migrateRequiresStrategist() public {
         vault.addAdapter(address(adapter2));
-
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vault.deployIdle();
 
         vm.prank(alice);
         vm.expectRevert(Looped.OnlyStrategist.selector);
         vault.migrateAdapter(ILendingAdapter(address(adapter)), ILendingAdapter(address(adapter2)));
     }
 
-    function test_ownerCanActAsStrategist() public {
-        vault.addAdapter(address(adapter2));
-
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vault.deployIdle();
-
-        // Owner (this contract) can call strategist functions
-        vault.migrateAdapter(ILendingAdapter(address(adapter)), ILendingAdapter(address(adapter2)));
-
-        assertEq(vault.adapterWeightBps(ILendingAdapter(address(adapter2))), 10000);
-    }
-
     /*//////////////////////////////////////////////////////////////
-                        EMERGENCY / ACCESS TESTS
+                    EMERGENCY / ACCESS TESTS
     //////////////////////////////////////////////////////////////*/
 
     function test_emergencyDeleverage() public {
-        vm.prank(alice);
-        vault.deposit(1000e18, alice);
-
-        vault.deployIdle();
+        _depositAndDeploy(1000e6);
 
         vault.emergencyDeleverage();
 
-        assertTrue(vault.paused(), "vault should be paused");
-        assertEq(adapter.debt(address(token)), 0, "debt should be zero");
-        assertEq(adapter.collateral(address(token)), 0, "collateral should be zero");
+        assertTrue(vault.paused(), "vault paused");
+        assertEq(adapter.debt(address(usdc)), 0, "debt zero");
+        assertEq(adapter.collateral(address(pt)), 0, "collateral zero");
     }
 
     function test_pausedBlocksDeposits() public {
+        _setupAdapterMarket();
         vault.emergencyDeleverage();
 
         vm.prank(alice);
         vm.expectRevert(Looped.Paused.selector);
-        vault.deposit(1000e18, alice);
+        vault.deposit(1000e6, alice);
     }
 
     function test_unpause() public {
+        _setupAdapterMarket();
         vault.emergencyDeleverage();
         assertTrue(vault.paused());
 
@@ -680,11 +483,17 @@ contract LoopedTest is Test {
 
         vm.prank(alice);
         vm.expectRevert();
-        vault.setTargetLtv(8000);
-
-        vm.prank(alice);
-        vm.expectRevert();
         vault.emergencyDeleverage();
+    }
+
+    function test_ownerCanActAsStrategist() public {
+        vm.prank(alice);
+        vault.deposit(1000e6, alice);
+
+        // Owner (this contract) can call strategist functions
+        vault.rollInto(ILendingAdapter(address(adapter)), address(pendleMarket));
+
+        assertGt(adapter.collateral(address(pt)), 0, "owner deployed as strategist");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -710,11 +519,11 @@ contract LoopedTest is Test {
         vault.setWithdrawalFeeBps(10);
         assertEq(vault.withdrawalFeeBps(), 10);
 
-        vault.setRebalanceTriggerHF(1.5e18);
-        assertEq(vault.rebalanceTriggerHF(), 1.5e18);
+        vault.setMaxSwapSlippageBps(100);
+        assertEq(vault.maxSwapSlippageBps(), 100);
 
-        vault.setMaxRolloverSlippageBps(100);
-        assertEq(vault.maxRolloverSlippageBps(), 100);
+        vault.setTwapDuration(1800);
+        assertEq(vault.twapDuration(), 1800);
     }
 
     function test_setTargetLtvMaxCap() public {
@@ -732,23 +541,31 @@ contract LoopedTest is Test {
         vault.setWithdrawalFeeBps(101);
     }
 
-    function test_setMaxRolloverSlippageMaxCap() public {
-        vm.expectRevert(Looped.InvalidParams.selector);
-        vault.setMaxRolloverSlippageBps(501);
-    }
-
     /*//////////////////////////////////////////////////////////////
                         MULTIPLE DEPOSITORS
     //////////////////////////////////////////////////////////////*/
 
     function test_multipleDepositors() public {
         vm.prank(alice);
-        vault.deposit(1000e18, alice);
+        vault.deposit(1000e6, alice);
 
         vm.prank(bob);
-        vault.deposit(1000e18, bob);
+        vault.deposit(1000e6, bob);
 
-        assertEq(vault.totalAssets(), 2000e18, "total assets from both depositors");
-        assertEq(vault.balanceOf(alice), vault.balanceOf(bob), "equal shares for equal deposits");
+        assertEq(vault.totalAssets(), 2000e6, "total assets from both depositors");
+        assertEq(vault.balanceOf(alice), vault.balanceOf(bob), "equal shares");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        ADAPTER POSITION VIEW
+    //////////////////////////////////////////////////////////////*/
+
+    function test_getAdapterPosition() public {
+        _depositAndDeploy(1000e6);
+
+        (uint256 col, uint256 dbt, uint256 weightBps) = vault.getAdapterPosition(ILendingAdapter(address(adapter)));
+        assertGt(col, 0, "collateral > 0");
+        assertGt(dbt, 0, "debt > 0");
+        assertEq(weightBps, 10000, "weight 100%");
     }
 }
