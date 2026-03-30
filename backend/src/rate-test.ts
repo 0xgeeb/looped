@@ -28,14 +28,14 @@ const scan = async () => {
 
   // Filter: positive net APY, non-high risk, some liquidity
   const filtered = markets.filter(
-    m => m.netApy > 0 && m.risk.toLowerCase() !== "high" && m.liquidity >= 100_000
+    m => m.netApy > 0 && m.netApy < 1_000 && m.risk.toLowerCase() !== "high"
   );
 
   // Top 20
   const top = filtered.slice(0, 20);
 
   const lines = [
-    `Yieldz Rate Scan — ${now}`,
+    `\nYieldz Rate Scan — ${now}`,
     `${markets.length} total markets, ${filtered.length} after filters`,
     "",
     "Top opportunities:",
