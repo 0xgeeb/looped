@@ -16,4 +16,7 @@ export const config = {
   idleDeployThresholdBps: Number(process.env.IDLE_DEPLOY_THRESHOLD_BPS) || 15000, // 150% of buffer = deploy
   rateImprovementThresholdBps: Number(process.env.RATE_IMPROVEMENT_THRESHOLD_BPS) || 50, // 0.5% APY improvement to migrate
   migrationCooldownMs: Number(process.env.MIGRATION_COOLDOWN_MS) || 86_400_000, // 24h
+
+  // Rate scanner
+  yieldzUrl: process.env.YIELDZ_URL || "https://yieldz.io/borrow",
 } as const;
