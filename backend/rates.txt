@@ -1,0 +1,238 @@
+Yieldz Rate Scan — 3/30/2026, 10:34:04 AM
+15 total markets, 11 after filters
+
+Top opportunities:
+   1. wsrUSD / rUSD — Morpho Ethereum
+      APY 46.214% | TVL $2.39M | liq $264K | util 88.93% | LLTV 98% | Low risk
+   2. PT-srUSDe-2APR2026 / USDC — Morpho Ethereum
+      APY 38.594% | TVL $6.52M | liq $3.63M | util 44.25% | LLTV 91.5% | Med. risk
+   3. siUSD / USDC — Morpho Arbitrum
+      APY 35.505% | TVL $2.36M | liq $373K | util 84.18% | LLTV 91.5% | Low risk
+   4. syzUSD / AUSD — Morpho Ethereum
+      APY 34.647% | TVL $2.95M | liq $293K | util 90.06% | LLTV 91.5% | Low risk
+   5. sUSDS / USD₮0 — Morpho Arbitrum
+      APY 32.823% | TVL $18.22M | liq $3.79M | util 79.21% | LLTV 94.5% | Med. risk
+   6. PPT-avUSD-14MAY2026 / USDC — Morpho Ethereum
+      APY 32.098% | TVL $4.98M | liq $417K | util 91.62% | LLTV 91.5% | Med. risk
+   7. PPT-USDai-18JUN2026 / USDC — Morpho Arbitrum
+      APY 30.805% | TVL $3.19M | liq $447K | util 85.99% | LLTV 91.5% | Med. risk
+   8. PPT-srNUSD-28MAY2026 / USDC — Morpho Ethereum
+      APY 30.607% | TVL $2.03M | liq $346K | util 82.92% | LLTV 91.5% | Med. risk
+   9. wsrUSD / USDT — Morpho Ethereum
+      APY 27.454% | TVL $48.41M | liq $5.39M | util 88.87% | LLTV 94.5% | Low risk
+  10. syzUSD / USDC — Morpho Ethereum
+      APY 27.377% | TVL $1.71M | liq $205K | util 88.01% | LLTV 91.5% | Low risk
+  11. siUSD / msUSD — Morpho Ethereum
+      APY 27.365% | TVL $5.00M | liq $479K | util 90.4% | LLTV 91.5% | Low risk
+
+Yieldz Rate Scan — 3/30/2026, 11:01:00 AM
+15 total markets, 11 after filters
+
+Top opportunities:
+   1. wsrUSD / rUSD — Morpho Ethereum
+      APY 46.214% | TVL $2.39M | liq $264K | util 88.93% | LLTV 98% | Low risk
+   2. PT-srUSDe-2APR2026 / USDC — Morpho Ethereum
+      APY 38.594% | TVL $6.52M | liq $3.63M | util 44.25% | LLTV 91.5% | Med. risk
+   3. siUSD / USDC — Morpho Arbitrum
+      APY 35.235% | TVL $2.36M | liq $248K | util 89.48% | LLTV 91.5% | Low risk
+   4. syzUSD / AUSD — Morpho Ethereum
+      APY 34.647% | TVL $2.95M | liq $293K | util 90.06% | LLTV 91.5% | Low risk
+   5. sUSDS / USD₮0 — Morpho Arbitrum
+      APY 32.843% | TVL $18.22M | liq $3.79M | util 79.21% | LLTV 94.5% | Med. risk
+   6. PPT-avUSD-14MAY2026 / USDC — Morpho Ethereum
+      APY 32.098% | TVL $4.98M | liq $417K | util 91.62% | LLTV 91.5% | Med. risk
+   7. PPT-USDai-18JUN2026 / USDC — Morpho Arbitrum
+      APY 30.805% | TVL $3.19M | liq $447K | util 85.99% | LLTV 91.5% | Med. risk
+   8. PPT-srNUSD-28MAY2026 / USDC — Morpho Ethereum
+      APY 30.607% | TVL $2.03M | liq $346K | util 82.92% | LLTV 91.5% | Med. risk
+   9. siUSD / msUSD — Morpho Ethereum
+      APY 28.675% | TVL $5.00M | liq $479K | util 90.4% | LLTV 91.5% | Low risk
+  10. wsrUSD / USDT — Morpho Ethereum
+      APY 27.454% | TVL $48.38M | liq $5.36M | util 88.91% | LLTV 94.5% | Low risk
+  11. syzUSD / USDC — Morpho Ethereum
+      APY 27.377% | TVL $1.71M | liq $205K | util 88.01% | LLTV 91.5% | Low risk
+
+
+Yieldz Rate Scan — 3/30/2026, 11:02:06 AM
+15 total markets, 11 after filters
+
+Top opportunities:
+   1. wsrUSD / rUSD — Morpho Ethereum
+      APY 46.214% | TVL $2.39M | liq $264K | util 88.93% | LLTV 98% | Low risk
+   2. PT-srUSDe-2APR2026 / USDC — Morpho Ethereum
+      APY 38.594% | TVL $6.52M | liq $3.63M | util 44.25% | LLTV 91.5% | Med. risk
+   3. siUSD / USDC — Morpho Arbitrum
+      APY 35.235% | TVL $2.36M | liq $248K | util 89.48% | LLTV 91.5% | Low risk
+   4. syzUSD / AUSD — Morpho Ethereum
+      APY 34.647% | TVL $2.95M | liq $293K | util 90.06% | LLTV 91.5% | Low risk
+   5. sUSDS / USD₮0 — Morpho Arbitrum
+      APY 32.843% | TVL $18.22M | liq $3.79M | util 79.21% | LLTV 94.5% | Med. risk
+   6. PPT-avUSD-14MAY2026 / USDC — Morpho Ethereum
+      APY 32.098% | TVL $4.98M | liq $417K | util 91.62% | LLTV 91.5% | Med. risk
+   7. PPT-USDai-18JUN2026 / USDC — Morpho Arbitrum
+      APY 30.805% | TVL $3.19M | liq $447K | util 85.99% | LLTV 91.5% | Med. risk
+   8. PPT-srNUSD-28MAY2026 / USDC — Morpho Ethereum
+      APY 30.607% | TVL $2.03M | liq $346K | util 82.92% | LLTV 91.5% | Med. risk
+   9. siUSD / msUSD — Morpho Ethereum
+      APY 28.675% | TVL $5.00M | liq $479K | util 90.4% | LLTV 91.5% | Low risk
+  10. wsrUSD / USDT — Morpho Ethereum
+      APY 27.454% | TVL $48.38M | liq $5.36M | util 88.91% | LLTV 94.5% | Low risk
+  11. syzUSD / USDC — Morpho Ethereum
+      APY 27.377% | TVL $1.71M | liq $205K | util 88.01% | LLTV 91.5% | Low risk
+
+
+Yieldz Rate Scan — 3/30/2026, 11:49:10 AM
+15 total markets, 11 after filters
+
+Top opportunities:
+   1. wsrUSD / rUSD — Morpho Ethereum
+      APY 46.624% | TVL $2.39M | liq $270K | util 88.71% | LLTV 98% | Low risk
+   2. PT-srUSDe-2APR2026 / USDC — Morpho Ethereum
+      APY 38.624% | TVL $6.52M | liq $3.63M | util 44.25% | LLTV 91.5% | Med. risk
+   3. siUSD / USDC — Morpho Arbitrum
+      APY 35.235% | TVL $2.36M | liq $248K | util 89.48% | LLTV 91.5% | Low risk
+   4. syzUSD / AUSD — Morpho Ethereum
+      APY 34.647% | TVL $2.95M | liq $293K | util 90.06% | LLTV 91.5% | Low risk
+   5. sUSDS / USD₮0 — Morpho Arbitrum
+      APY 32.863% | TVL $18.22M | liq $3.79M | util 79.21% | LLTV 94.5% | Med. risk
+   6. PPT-avUSD-14MAY2026 / USDC — Morpho Ethereum
+      APY 32.068% | TVL $4.98M | liq $417K | util 91.62% | LLTV 91.5% | Med. risk
+   7. PPT-USDai-18JUN2026 / USDC — Morpho Arbitrum
+      APY 30.805% | TVL $3.19M | liq $447K | util 85.99% | LLTV 91.5% | Med. risk
+   8. PPT-srNUSD-28MAY2026 / USDC — Morpho Ethereum
+      APY 30.617% | TVL $2.03M | liq $346K | util 82.92% | LLTV 91.5% | Med. risk
+   9. siUSD / msUSD — Morpho Ethereum
+      APY 28.665% | TVL $5.00M | liq $479K | util 90.4% | LLTV 91.5% | Low risk
+  10. wsrUSD / USDT — Morpho Ethereum
+      APY 27.434% | TVL $48.36M | liq $5.34M | util 88.96% | LLTV 94.5% | Low risk
+  11. syzUSD / USDC — Morpho Ethereum
+      APY 27.377% | TVL $1.71M | liq $205K | util 88.01% | LLTV 91.5% | Low risk
+
+
+Yieldz Rate Scan — 3/30/2026, 11:59:04 AM
+15 total markets, 11 after filters
+
+Top opportunities:
+   1. ezETH / WETH V3 — Aave Arbitrum
+      APY 388500% | TVL $85.04M | liq $49.19M | util 83.92% | LLTV 93% | Low risk
+   2. wsrUSD / rUSD — Morpho Ethereum
+      APY 46.624% | TVL $2.39M | liq $270K | util 88.71% | LLTV 98% | Low risk
+   3. PT-srUSDe-2APR2026 / USDC — Morpho Ethereum
+      APY 38.624% | TVL $6.52M | liq $3.63M | util 44.25% | LLTV 91.5% | Med. risk
+   4. siUSD / USDC — Morpho Arbitrum
+      APY 35.235% | TVL $2.36M | liq $248K | util 89.48% | LLTV 91.5% | Low risk
+   5. syzUSD / AUSD — Morpho Ethereum
+      APY 34.647% | TVL $2.95M | liq $293K | util 90.06% | LLTV 91.5% | Low risk
+   6. sUSDS / USD₮0 — Morpho Arbitrum
+      APY 32.863% | TVL $18.22M | liq $3.79M | util 79.21% | LLTV 94.5% | Med. risk
+   7. PPT-avUSD-14MAY2026 / USDC — Morpho Ethereum
+      APY 32.068% | TVL $4.98M | liq $417K | util 91.62% | LLTV 91.5% | Med. risk
+   8. PPT-USDai-18JUN2026 / USDC — Morpho Arbitrum
+      APY 30.805% | TVL $3.19M | liq $447K | util 85.99% | LLTV 91.5% | Med. risk
+   9. PPT-srNUSD-28MAY2026 / USDC — Morpho Ethereum
+      APY 30.617% | TVL $2.03M | liq $346K | util 82.92% | LLTV 91.5% | Med. risk
+  10. siUSD / msUSD — Morpho Ethereum
+      APY 28.665% | TVL $5.00M | liq $479K | util 90.4% | LLTV 91.5% | Low risk
+  11. wsrUSD / USDT — Morpho Ethereum
+      APY 27.434% | TVL $48.36M | liq $5.34M | util 88.96% | LLTV 94.5% | Low risk
+
+
+Yieldz Rate Scan — 3/30/2026, 11:59:35 AM
+15 total markets, 11 after filters
+
+Top opportunities:
+   1. ezETH / WETH V3 — Aave Arbitrum
+      APY 388500% | TVL $85.04M | liq $49.19M | util 83.92% | LLTV 93% | Low risk
+   2. wsrUSD / rUSD — Morpho Ethereum
+      APY 46.624% | TVL $2.39M | liq $270K | util 88.71% | LLTV 98% | Low risk
+   3. PT-srUSDe-2APR2026 / USDC — Morpho Ethereum
+      APY 38.624% | TVL $6.52M | liq $3.63M | util 44.25% | LLTV 91.5% | Med. risk
+   4. siUSD / USDC — Morpho Arbitrum
+      APY 35.235% | TVL $2.36M | liq $248K | util 89.48% | LLTV 91.5% | Low risk
+   5. syzUSD / AUSD — Morpho Ethereum
+      APY 34.647% | TVL $2.95M | liq $293K | util 90.06% | LLTV 91.5% | Low risk
+   6. sUSDS / USD₮0 — Morpho Arbitrum
+      APY 32.863% | TVL $18.22M | liq $3.79M | util 79.21% | LLTV 94.5% | Med. risk
+   7. PPT-avUSD-14MAY2026 / USDC — Morpho Ethereum
+      APY 32.068% | TVL $4.98M | liq $417K | util 91.62% | LLTV 91.5% | Med. risk
+   8. PPT-USDai-18JUN2026 / USDC — Morpho Arbitrum
+      APY 30.805% | TVL $3.19M | liq $447K | util 85.99% | LLTV 91.5% | Med. risk
+   9. PPT-srNUSD-28MAY2026 / USDC — Morpho Ethereum
+      APY 30.617% | TVL $2.03M | liq $346K | util 82.92% | LLTV 91.5% | Med. risk
+  10. siUSD / msUSD — Morpho Ethereum
+      APY 28.665% | TVL $5.00M | liq $479K | util 90.4% | LLTV 91.5% | Low risk
+  11. wsrUSD / USDT — Morpho Ethereum
+      APY 27.434% | TVL $48.36M | liq $5.34M | util 88.96% | LLTV 94.5% | Low risk
+
+
+Yieldz Rate Scan — 3/30/2026, 7:46:29 PM
+15 total markets, 15 after filters
+
+Top opportunities:
+   1. ezETH / WETH — Morpho Ethereum
+      APY 64.024% | TVL $106K | liq $19K | util 82.01% | LLTV 94.5% | Med. risk
+   2. wsrUSD / rUSD — Morpho Ethereum
+      APY 44.814% | TVL $2.57M | liq $260K | util 89.88% | LLTV 98% | Low risk
+   3. syzUSD / AUSD — Morpho Ethereum
+      APY 43.447% | TVL $2.95M | liq $775K | util 73.71% | LLTV 91.5% | Low risk
+   4. PT-srUSDe-2APR2026 / USDC — Morpho Ethereum
+      APY 39.164% | TVL $6.52M | liq $3.63M | util 44.25% | LLTV 91.5% | Med. risk
+   5. PPT-cUSD-23JUL2026 / USDT — Morpho Ethereum
+      APY 37.706% | TVL $63K | liq $8K | util 87.07% | LLTV 91.5% | Med. risk
+   6. savUSD / frxUSD — Morpho Ethereum
+      APY 37.558% | TVL $2.50M | liq $254K | util 89.84% | LLTV 91.5% | Low risk
+   7. siUSD / USD₮0 — Morpho Arbitrum
+      APY 34.214% | TVL $205K | liq $61K | util 70.3% | LLTV 91.5% | Med. risk
+   8. sUSDS / USD₮0 — Morpho Arbitrum
+      APY 32.273% | TVL $18.21M | liq $3.40M | util 81.34% | LLTV 94.5% | Med. risk
+   9. syzUSD / USDC — Morpho Ethereum
+      APY 31.947% | TVL $1.57M | liq $313K | util 80.1% | LLTV 91.5% | Low risk
+  10. PPT-avUSD-14MAY2026 / USDC — Morpho Ethereum
+      APY 31.798% | TVL $4.98M | liq $417K | util 91.62% | LLTV 91.5% | Med. risk
+  11. PPT-USDai-18JUN2026 / USDC — Morpho Arbitrum
+      APY 31.295% | TVL $3.25M | liq $502K | util 84.55% | LLTV 91.5% | Med. risk
+  12. PPT-avUSD-14MAY2026 / frxUSD — Morpho Ethereum
+      APY 31.148% | TVL $474K | liq $53K | util 88.84% | LLTV 91.5% | Med. risk
+  13. PPT-srNUSD-28MAY2026 / USDC — Morpho Ethereum
+      APY 30.207% | TVL $2.00M | liq $320K | util 84.01% | LLTV 91.5% | Med. risk
+  14. wsuperOETHb / msETH — Morpho Base
+      APY 27.712% | TVL $6.07M | liq $1.52M | util 74.98% | LLTV 94.5% | Med. risk
+  15. wsrUSD / USDT — Morpho Ethereum
+      APY 27.644% | TVL $48.36M | liq $5.50M | util 88.62% | LLTV 94.5% | Low risk
+
+
+Yieldz Rate Scan — 3/31/2026, 1:42:09 PM
+15 total markets, 15 after filters
+
+Top opportunities:
+   1. PT-apyUSD-18JUN2026 / USDC — Morpho Ethereum
+      APY 94.6313% | TVL $1.12M | liq $716K | util 36.24% | LLTV 86% | Low risk
+   2. apyUSD / USDC — Morpho Ethereum
+      APY 56.318% | TVL $120K | liq $120K | util 0.05% | LLTV 86% | Med. risk
+   3. syzUSD / USDC — Morpho Ethereum
+      APY 56.257% | TVL $6.07M | liq $3.92M | util 35.42% | LLTV 91.5% | Low risk
+   4. PT-apxUSD-18JUN2026 / USDC — Morpho Ethereum
+      APY 49.4312% | TVL $122K | liq $131 | util 99.89% | LLTV 86% | Med. risk
+   5. wsrUSD / rUSD — Morpho Ethereum
+      APY 41.534% | TVL $2.81M | liq $290K | util 89.66% | LLTV 98% | Low risk
+   6. siUSD / USD₮0 — Morpho Arbitrum
+      APY 39.385% | TVL $211K | liq $67K | util 68.13% | LLTV 91.5% | Med. risk
+   7. syzUSD / AUSD — Morpho Ethereum
+      APY 38.827% | TVL $1.86M | liq $269K | util 85.53% | LLTV 91.5% | Low risk
+   8. PPT-cUSD-23JUL2026 / USDT — Morpho Ethereum
+      APY 34.926% | TVL $60K | liq $6K | util 90.17% | LLTV 91.5% | Med. risk
+   9. PT-USDG-28MAY2026 / AUSD — Morpho Ethereum
+      APY 33.795% | TVL $127K | liq $42K | util 67.44% | LLTV 94.5% | Med. risk
+  10. sUSDS / USD₮0 — Morpho Arbitrum
+      APY 31.553% | TVL $12.98M | liq $2.23M | util 82.83% | LLTV 94.5% | Med. risk
+  11. PPT-avUSD-14MAY2026 / frxUSD — Morpho Ethereum
+      APY 31.198% | TVL $474K | liq $53K | util 88.84% | LLTV 91.5% | Med. risk
+  12. PPT-avUSD-14MAY2026 / USDC — Morpho Ethereum
+      APY 31.178% | TVL $4.98M | liq $417K | util 91.63% | LLTV 91.5% | Med. risk
+  13. PPT-srNUSD-28MAY2026 / USDC — Morpho Ethereum
+      APY 30.337% | TVL $1.99M | liq $310K | util 84.43% | LLTV 91.5% | Med. risk
+  14. wsrUSD / USDT — Morpho Ethereum
+      APY 26.524% | TVL $48.41M | liq $4.83M | util 90.03% | LLTV 94.5% | Low risk
+  15. syrupUSDC / AUSD — Morpho Ethereum
+      APY 25.784% | TVL $4.31M | liq $566K | util 86.88% | LLTV 91.5% | Med. risk
+
