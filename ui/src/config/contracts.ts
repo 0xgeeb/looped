@@ -4,7 +4,7 @@ import { parseAbi, type Address } from "viem";
 export const VAULT_ADDRESS: Address =
   (process.env.NEXT_PUBLIC_VAULT_ADDRESS as Address) ??
   "0x0000000000000000000000000000000000000000";
-export const USDC_ADDRESS: Address = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
+export const USDC_ADDRESS: Address = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // Arbitrum USDC
 
 // ── ABIs ─────────────────────────────────────────────────────────────
 export const vaultAbi = parseAbi([

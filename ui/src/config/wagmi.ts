@@ -1,11 +1,11 @@
 import { http, createConfig } from "wagmi";
-import { base } from "wagmi/chains";
+import { arbitrum } from "wagmi/chains";
 import { injected } from "wagmi/connectors";
 
 export const config = createConfig({
-  chains: [base],
+  chains: [arbitrum],
   connectors: [injected()],
   transports: {
-    [base.id]: http(),
+    [arbitrum.id]: http(),
   },
 });

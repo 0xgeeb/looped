@@ -28,7 +28,7 @@ const scan = async () => {
 
   // Filter: positive net APY, non-high risk, some liquidity
   const filtered = markets.filter(
-    m => m.netApy > 0 && m.netApy < 1_000 && m.risk.toLowerCase() !== "high"
+    m => m.network === "Arbitrum" && m.netApy > 0 && m.netApy < 1_000 && m.risk.toLowerCase() !== "high"
   );
 
   // Top 20

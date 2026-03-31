@@ -236,3 +236,73 @@ Top opportunities:
   15. syrupUSDC / AUSD — Morpho Ethereum
       APY 25.784% | TVL $4.31M | liq $566K | util 86.88% | LLTV 91.5% | Med. risk
 
+
+Yieldz Rate Scan — 3/31/2026, 1:44:39 PM
+15 total markets, 0 after filters
+
+Top opportunities:
+
+
+Yieldz Rate Scan — 3/31/2026, 1:53:33 PM
+150 total markets, 13 after filters
+
+Top opportunities:
+   1. wstETH / WETH V3 — Aave Base
+      APY 525% | TVL $38.66M | liq $51.39M | util 78.73% | LLTV 93% | Low risk
+   2. weETH / WETH V3 — Aave Base
+      APY 316% | TVL $156.79M | liq $51.39M | util 78.73% | LLTV 93% | Low risk
+   3. wsuperOETHb / msETH — Morpho Base
+      APY 21.972% | TVL $6.13M | liq $1.53M | util 75.03% | LLTV 94.5% | Med. risk
+   4. wstETH / WETH — Morpho Base
+      APY 17.562% | TVL $454K | liq $58K | util 87.22% | LLTV 96.5% | Med. risk
+   5. weETH / WETH — Morpho Base
+      APY 17.442% | TVL $3.61M | liq $500K | util 86.16% | LLTV 94.5% | Low risk
+   6. wstETH / WETH — Morpho Base
+      APY 11.452% | TVL $15.57M | liq $2.10M | util 86.5% | LLTV 94.5% | Low risk
+   7. wstETH / cbETH V3 — Aave Base
+      APY 6.512% | TVL $38.66M | liq $8.50M | util 6.75% | LLTV 75% | Low risk
+   8. weETH / cbETH V3 — Aave Base
+      APY 5.932% | TVL $156.79M | liq $8.50M | util 6.75% | LLTV 75% | Low risk
+   9. WETH / cbETH V3 — Aave Base
+      APY 3.181% | TVL $241.62M | liq $8.50M | util 6.75% | LLTV 80% | Low risk
+  10. wstETH / wstETH V3 — Aave Base
+      APY 2.402% | TVL $38.66M | liq $37.61M | util 2.71% | LLTV 75% | Low risk
+  11. weETH / wstETH V3 — Aave Base
+      APY 1.812% | TVL $156.79M | liq $37.61M | util 2.71% | LLTV 75% | Low risk
+  12. USDC / EURC V3 — Aave Base
+      APY 1.802% | TVL $345.77M | liq $10.22M | util 33% | LLTV 75% | Low risk
+  13. USDC / GHO V3 — Aave Base
+      APY 1.732% | TVL $345.77M | liq $3.22M | util 55.28% | LLTV 75% | Med. risk
+
+
+Yieldz Rate Scan — 3/31/2026, 3:53:37 PM
+150 total markets, 13 after filters
+
+Top opportunities:
+   1. weETH / WETH V3 — Aave Base
+      APY 984% | TVL $156.48M | liq $51.71M | util 78.59% | LLTV 93% | Low risk
+   2. wstETH / WETH V3 — Aave Base
+      APY 530% | TVL $38.58M | liq $51.71M | util 78.59% | LLTV 93% | Low risk
+   3. wsuperOETHb / msETH — Morpho Base
+      APY 21.972% | TVL $6.13M | liq $1.53M | util 75.03% | LLTV 94.5% | Med. risk
+   4. wstETH / WETH — Morpho Base
+      APY 17.562% | TVL $454K | liq $58K | util 87.22% | LLTV 96.5% | Med. risk
+   5. weETH / WETH — Morpho Base
+      APY 17.442% | TVL $3.61M | liq $500K | util 86.16% | LLTV 94.5% | Low risk
+   6. wstETH / WETH — Morpho Base
+      APY 11.452% | TVL $15.57M | liq $2.10M | util 86.5% | LLTV 94.5% | Low risk
+   7. weETH / cbETH V3 — Aave Base
+      APY 7.782% | TVL $156.48M | liq $8.48M | util 6.75% | LLTV 75% | Low risk
+   8. wstETH / cbETH V3 — Aave Base
+      APY 6.512% | TVL $38.58M | liq $8.48M | util 6.75% | LLTV 75% | Low risk
+   9. weETH / wstETH V3 — Aave Base
+      APY 3.672% | TVL $156.48M | liq $37.54M | util 2.71% | LLTV 75% | Low risk
+  10. WETH / cbETH V3 — Aave Base
+      APY 3.151% | TVL $241.59M | liq $8.48M | util 6.75% | LLTV 80% | Low risk
+  11. wstETH / wstETH V3 — Aave Base
+      APY 2.402% | TVL $38.58M | liq $37.54M | util 2.71% | LLTV 75% | Low risk
+  12. USDC / EURC V3 — Aave Base
+      APY 1.772% | TVL $346.21M | liq $10.12M | util 33.21% | LLTV 75% | Low risk
+  13. USDC / GHO V3 — Aave Base
+      APY 1.742% | TVL $346.21M | liq $3.21M | util 55.36% | LLTV 75% | Med. risk
+

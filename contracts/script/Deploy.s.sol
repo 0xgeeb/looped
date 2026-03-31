@@ -7,10 +7,10 @@ import {AaveLendingAdapter} from "../src/adapters/AaveLendingAdapter.sol";
 import {ILendingAdapter} from "../src/interfaces/ILendingAdapter.sol";
 
 contract Deploy is Script {
-    // ─── Base Mainnet Addresses ──────────────────────────────
-    address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
-    address constant AAVE_POOL = 0xA238Dd80C259a72e81d7e4664a9801593F98d1c5;
-    address constant AAVE_DATA_PROVIDER = 0x2d8A3C5677189723C4cB8873CfC9C8976FDF38Ac;
+    // ─── Arbitrum Mainnet Addresses ────────────────────────────
+    address constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
+    address constant AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
+    address constant AAVE_DATA_PROVIDER = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
     address constant PENDLE_ROUTER = 0x888888888889758F76e7103c6CbF23ABbF58F946;
     address constant PENDLE_ORACLE = 0x66A1096C6366B2529274dF4F5d8f56DA60a06f62;
 

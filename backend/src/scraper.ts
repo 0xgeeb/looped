@@ -61,20 +61,35 @@ export const scrapeYieldz = async (): Promise<YieldzMarket[]> => {
     // Wait for table rows to appear
     await page.waitForSelector("table tbody tr", { timeout: 15_000 });
 
-    // Small delay for any late-rendering data
-    await page.waitForTimeout(2000);
+    // Try to click an Arbitrum chain filter in the UI
+    try {
+      const arbFilter = page.locator('button, [role="option"], [role="checkbox"], label, div[class*="filter"], div[class*="chip"]')
+        .filter({ hasText: /^Arbitrum$/ })
+        .first();
+      if (await arbFilter.isVisible({ timeout: 3_000 })) {
+        await arbFilter.click();
+        await page.waitForTimeout(2000);
+        console.log("[scraper] clicked Arbitrum chain filter");
+      } else {
+        console.log("[scraper] no Arbitrum filter button found, will filter in code");
+      }
+    } catch {
+      console.log("[scraper] chain filter click failed, will filter in code");
+    }
 
-    const markets = await page.evaluate(`(() => {
+    await page.waitForTimeout(1000);
+
+    // Helper to extract rows from the current page
+    const extractRows = `(() => {
       const rows = document.querySelectorAll("table tbody tr");
       const parsed = [];
-
       for (const row of rows) {
         const cells = row.querySelectorAll("td");
         const rowData = [];
         for (const cell of cells) {
-          // Remove hidden/sr-only elements before reading text
-          cell.querySelectorAll("[class*='sr-only'], [aria-hidden='true']").forEach(el => el.remove());
-          let text = (cell.textContent || "").trim();
+          const clone = cell.cloneNode(true);
+          clone.querySelectorAll("[class*='sr-only'], [aria-hidden='true']").forEach(el => el.remove());
+          let text = (clone.textContent || "").trim();
           text = text.replace(/Open token on explorer/gi, "")
                      .replace(/Open market/gi, "")
                      .replace(/\\s+/g, " ")
@@ -83,22 +98,43 @@ export const scrapeYieldz = async (): Promise<YieldzMarket[]> => {
         }
         parsed.push(rowData);
       }
+      return parsed;
+    })()`;
 
-      const headers = [];
+    // Get headers
+    const headers = await page.evaluate(`(() => {
       const ths = document.querySelectorAll("table thead th");
-      for (const th of ths) {
-        headers.push((th.textContent || "").trim().toLowerCase());
+      return Array.from(ths).map(th => (th.textContent || "").trim().toLowerCase());
+    })()`) as string[];
+
+    // Collect rows from all pages
+    let allRows: string[][] = await page.evaluate(extractRows) as string[][];
+    console.log(`[scraper] page 1: ${allRows.length} rows`);
+
+    const maxPages = 10;
+    for (let p = 1; p < maxPages; p++) {
+      try {
+        const nextBtn = page.locator('button:has-text("Next"), button:has-text("next"), [aria-label="Next page"], button:has-text("›"), button:has-text("»")')
+          .first();
+        if (await nextBtn.isVisible({ timeout: 1_500 }) && await nextBtn.isEnabled({ timeout: 500 })) {
+          await nextBtn.click();
+          await page.waitForTimeout(1500);
+          const pageRows = await page.evaluate(extractRows) as string[][];
+          console.log(`[scraper] page ${p + 1}: ${pageRows.length} rows`);
+          allRows.push(...pageRows);
+        } else {
+          break;
+        }
+      } catch {
+        break;
       }
+    }
 
-      return { headers, rows: parsed };
-    })()`) as { headers: string[]; rows: string[][] };
-
-    console.log(`[scraper] found ${markets.rows.length} rows, headers: ${markets.headers.join(", ")}`);
+    console.log(`[scraper] found ${allRows.length} total rows, headers: ${headers.join(", ")}`);
 
     // Map headers to indices
     // Actual headers from yieldz: leverage, deposit, borrow, oracle, apy ↓, risk, tvl ↕, liquidity ↕, utilization ↕, lltv ↕
-    const h = markets.headers;
-    const idx = (name: string): number => h.findIndex(header => header.includes(name));
+    const idx = (name: string): number => headers.findIndex(header => header.includes(name));
 
     const depositIdx = idx("deposit");
     const borrowIdx = idx("borrow");
@@ -135,7 +171,7 @@ export const scrapeYieldz = async (): Promise<YieldzMarket[]> => {
 
     const parsed: YieldzMarket[] = [];
 
-    for (const row of markets.rows) {
+    for (const row of allRows) {
       if (row.length < 3) continue;
 
       const get = (i: number): string => (i >= 0 && i < row.length ? row[i]! : "");

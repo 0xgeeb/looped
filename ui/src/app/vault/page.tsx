@@ -126,7 +126,7 @@ export default function VaultPage() {
                 USDC Vault
               </h1>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider text-accent bg-accent-subtle border border-accent/20">
-                Base
+                Arbitrum
               </span>
             </div>
             <div className="flex items-center gap-3 text-xs text-muted mt-0.5">
@@ -280,7 +280,7 @@ export default function VaultPage() {
                 { label: "Idle Buffer", value: `${vault?.targetBuffer ?? 0}%` },
                 { label: "Withdrawal Fee", value: `${vault?.withdrawalFee ?? 0}%` },
                 { label: "Adapters", value: `${adapters.length}` },
-                { label: "Chain", value: "Base" },
+                { label: "Chain", value: "Arbitrum" },
               ].map((p) => (
                 <div key={p.label} className="flex justify-between items-center py-2 border-b border-border last:border-b-0">
                   <span className="text-xs text-muted">{p.label}</span>

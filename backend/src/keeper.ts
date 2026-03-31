@@ -7,7 +7,7 @@ import {
   formatEther,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { base } from "viem/chains";
+import { arbitrum } from "viem/chains";
 import { config } from "./config.js";
 
 // Minimal ABIs
@@ -50,13 +50,13 @@ const account = privateKeyToAccount(config.privateKey);
 const vault = config.vaultAddress;
 
 const publicClient = createPublicClient({
-  chain: base,
+  chain: arbitrum,
   transport: http(config.rpcUrl),
 });
 
 const walletClient = createWalletClient({
   account,
-  chain: base,
+  chain: arbitrum,
   transport: http(config.rpcUrl),
 });
 
@@ -104,7 +104,7 @@ const getActiveAdapters = async (): Promise<{ address: Address; weight: bigint }
 const callDeployIdle = async () => {
   try {
     const hash = await walletClient.writeContract({
-      chain: base,
+      chain: arbitrum,
       address: vault,
       abi: vaultAbi,
       functionName: "deployIdle",
@@ -125,7 +125,7 @@ const callDeployIdle = async () => {
 const callRebalance = async () => {
   try {
     const hash = await walletClient.writeContract({
-      chain: base,
+      chain: arbitrum,
       address: vault,
       abi: vaultAbi,
       functionName: "rebalance",
@@ -145,7 +145,7 @@ const callRebalance = async () => {
 const callRolloverToIdle = async (adapterAddr: Address) => {
   try {
     const hash = await walletClient.writeContract({
-      chain: base,
+      chain: arbitrum,
       address: vault,
       abi: vaultAbi,
       functionName: "rolloverToIdle",
@@ -164,7 +164,7 @@ const callRolloverToIdle = async (adapterAddr: Address) => {
 const callRollInto = async (adapterAddr: Address, pendleMarket: Address) => {
   try {
     const hash = await walletClient.writeContract({
-      chain: base,
+      chain: arbitrum,
       address: vault,
       abi: vaultAbi,
       functionName: "rollInto",
@@ -181,7 +181,7 @@ const callRollInto = async (adapterAddr: Address, pendleMarket: Address) => {
 const callSetWeights = async (adapters: Address[], weights: bigint[]) => {
   try {
     const hash = await walletClient.writeContract({
-      chain: base,
+      chain: arbitrum,
       address: vault,
       abi: vaultAbi,
       functionName: "setAdapterWeights",
