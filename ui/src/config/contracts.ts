@@ -45,10 +45,6 @@ export const adapterAbi = parseAbi([
   "function getCollateral(address asset) view returns (uint256)",
   "function getDebt(address asset) view returns (uint256)",
   "function getHealthFactor() view returns (uint256)",
-  "function getSupplyRate(address asset) view returns (uint256)",
-  "function getBorrowRate(address asset) view returns (uint256)",
-  "function getExpiry() view returns (uint256)",
-  "function isMatured() view returns (bool)",
 ]);
 
 export const vaultEventAbi = parseAbi([

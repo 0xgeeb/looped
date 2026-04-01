@@ -4,46 +4,41 @@ import {
   http,
   type Address,
   parseAbi,
-  formatEther,
+  formatUnits,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arbitrum } from "viem/chains";
 import { config } from "./config.js";
 
+const USDC_DECIMALS = 6;
+
 // Minimal ABIs
 const vaultAbi = parseAbi([
   "function totalAssets() view returns (uint256)",
   "function targetBuffer() view returns (uint256)",
-  "function rebalanceTriggerHF() view returns (uint256)",
   "function minHealthFactor() view returns (uint256)",
   "function paused() view returns (bool)",
   "function getAdapters() view returns (address[])",
-  "function getAdapterPosition(address) view returns (uint256 collateral, uint256 debt, uint256 weightBps)",
   "function adapterWeightBps(address) view returns (uint256)",
+  "function adapterMarket(address) view returns (address)",
   "function asset() view returns (address)",
   "function strategist() view returns (address)",
-  // Tier 1 — permissionless
   "function deployIdle()",
   "function rebalance()",
   "function rolloverToIdle(address adapter)",
-  // Tier 2 — strategist
-  "function rollInto(address adapter, address pendleMarket)",
-  "function migrateAdapter(address from, address to)",
-  "function setAdapterWeights(address[], uint256[])",
 ]);
 
 const adapterAbi = parseAbi([
   "function getHealthFactor() view returns (uint256)",
-  "function getCollateral(address asset) view returns (uint256)",
   "function getDebt(address asset) view returns (uint256)",
-  "function getSupplyRate(address asset) view returns (uint256)",
-  "function getBorrowRate(address asset) view returns (uint256)",
-  "function getExpiry() view returns (uint256)",
-  "function isMatured() view returns (bool)",
 ]);
 
 const erc20Abi = parseAbi([
   "function balanceOf(address) view returns (uint256)",
+]);
+
+const pendleMarketAbi = parseAbi([
+  "function expiry() view returns (uint256)",
 ]);
 
 const account = privateKeyToAccount(config.privateKey);
@@ -97,10 +92,6 @@ const getActiveAdapters = async (): Promise<{ address: Address; weight: bigint }
   return results;
 };
 
-// ─── Tier 1: Permissionless Callers ──────────────────────────
-// These call on-chain functions that anyone can trigger.
-// No privileged access needed — conditions are checked on-chain.
-
 const callDeployIdle = async () => {
   try {
     const hash = await walletClient.writeContract({
@@ -109,16 +100,11 @@ const callDeployIdle = async () => {
       abi: vaultAbi,
       functionName: "deployIdle",
     });
-    console.log(`[tier1:deployIdle] tx sent: ${hash}`);
+    console.log(`[keeper:deployIdle] tx sent: ${hash}`);
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log(`[tier1:deployIdle] confirmed block ${receipt.blockNumber}`);
-  } catch (err: any) {
-    // ConditionNotMet is expected when idle <= buffer
-    if (err?.message?.includes("ConditionNotMet")) {
-      console.log("[tier1:deployIdle] condition not met, skipping");
-    } else {
-      console.error("[tier1:deployIdle] failed:", err);
-    }
+    console.log(`[keeper:deployIdle] confirmed block ${receipt.blockNumber}`);
+  } catch (err) {
+    console.error("[keeper:deployIdle] failed:", err);
   }
 };
 
@@ -130,15 +116,11 @@ const callRebalance = async () => {
       abi: vaultAbi,
       functionName: "rebalance",
     });
-    console.log(`[tier1:rebalance] tx sent: ${hash}`);
+    console.log(`[keeper:rebalance] tx sent: ${hash}`);
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log(`[tier1:rebalance] confirmed block ${receipt.blockNumber}`);
-  } catch (err: any) {
-    if (err?.message?.includes("ConditionNotMet")) {
-      console.log("[tier1:rebalance] condition not met, skipping");
-    } else {
-      console.error("[tier1:rebalance] failed:", err);
-    }
+    console.log(`[keeper:rebalance] confirmed block ${receipt.blockNumber}`);
+  } catch (err) {
+    console.error("[keeper:rebalance] failed:", err);
   }
 };
 
@@ -151,47 +133,11 @@ const callRolloverToIdle = async (adapterAddr: Address) => {
       functionName: "rolloverToIdle",
       args: [adapterAddr],
     });
-    console.log(`[tier1:rollover] tx sent for ${adapterAddr}: ${hash}`);
+    console.log(`[keeper:rollover] tx sent for ${adapterAddr}: ${hash}`);
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log(`[tier1:rollover] confirmed block ${receipt.blockNumber}`);
+    console.log(`[keeper:rollover] confirmed block ${receipt.blockNumber}`);
   } catch (err) {
-    console.error(`[tier1:rollover] failed for ${adapterAddr}:`, err);
-  }
-};
-
-// ─── Tier 2: Strategist Transactions ─────────────────────────
-
-const callRollInto = async (adapterAddr: Address, pendleMarket: Address) => {
-  try {
-    const hash = await walletClient.writeContract({
-      chain: arbitrum,
-      address: vault,
-      abi: vaultAbi,
-      functionName: "rollInto",
-      args: [adapterAddr, pendleMarket],
-    });
-    console.log(`[tier2:rollInto] tx sent: ${hash}`);
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log(`[tier2:rollInto] confirmed block ${receipt.blockNumber}`);
-  } catch (err) {
-    console.error("[tier2:rollInto] failed:", err);
-  }
-};
-
-const callSetWeights = async (adapters: Address[], weights: bigint[]) => {
-  try {
-    const hash = await walletClient.writeContract({
-      chain: arbitrum,
-      address: vault,
-      abi: vaultAbi,
-      functionName: "setAdapterWeights",
-      args: [adapters, weights],
-    });
-    console.log(`[tier2:setWeights] tx sent: ${hash}`);
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log(`[tier2:setWeights] confirmed block ${receipt.blockNumber}`);
-  } catch (err) {
-    console.error("[tier2:setWeights] failed:", err);
+    console.error(`[keeper:rollover] failed for ${adapterAddr}:`, err);
   }
 };
 
@@ -218,11 +164,11 @@ const checkAndDeployIdle = async () => {
   const idleRatio = idle * 10000n / totalAssets;
 
   console.log(
-    `[tier1:idle] idle: ${formatEther(idle)} | buffer target: ${formatEther(bufferTarget)} | idle ratio: ${idleRatio} bps`
+    `[keeper:idle] idle: ${formatUnits(idle, USDC_DECIMALS)} | buffer target: ${formatUnits(bufferTarget, USDC_DECIMALS)} | idle ratio: ${idleRatio} bps`
   );
 
   if (idle > bufferTarget) {
-    console.log("[tier1:idle] deploying excess idle");
+    console.log("[keeper:idle] deploying excess idle");
     await callDeployIdle();
   }
 };
@@ -230,12 +176,11 @@ const checkAndDeployIdle = async () => {
 const checkHealthFactor = async () => {
   const paused = await readVault("paused");
   if (paused) {
-    console.log("[tier1:health] vault is paused, skipping");
+    console.log("[keeper:health] vault is paused, skipping");
     return;
   }
 
   const adapters = await getActiveAdapters();
-  const triggerHF = await readVault("rebalanceTriggerHF") as bigint;
   const minHF = await readVault("minHealthFactor") as bigint;
   const asset = await readVault("asset") as Address;
 
@@ -246,16 +191,16 @@ const checkHealthFactor = async () => {
 
       const hf = await readAdapter(adapterAddr, "getHealthFactor") as bigint;
       console.log(
-        `[tier1:health] adapter ${adapterAddr} (${weight} bps) HF: ${formatEther(hf)} | trigger: ${formatEther(triggerHF)}`
+        `[keeper:health] adapter ${adapterAddr} (${weight} bps) HF: ${formatUnits(hf, 18)} | minimum: ${formatUnits(minHF, 18)}`
       );
 
-      if (hf < triggerHF) {
-        console.log(`[tier1:health] adapter ${adapterAddr} HF below trigger, calling rebalance`);
+      if (hf < minHF) {
+        console.log(`[keeper:health] adapter ${adapterAddr} HF below minimum, calling rebalance`);
         await callRebalance();
         return;
       }
     } catch {
-      console.log(`[tier1:health] adapter ${adapterAddr} health check failed, skipping`);
+      console.log(`[keeper:health] adapter ${adapterAddr} health check failed, skipping`);
     }
   }
 };
@@ -268,110 +213,28 @@ const checkMaturedAdapters = async () => {
 
   for (const addr of allAdapters) {
     try {
-      const expiry = await readAdapter(addr, "getExpiry") as bigint;
-      if (expiry === 0n) continue; // non-PT adapter
+      const market = await readVault("adapterMarket", [addr]) as Address;
+      if (market === "0x0000000000000000000000000000000000000000") continue;
 
-      const matured = await readAdapter(addr, "isMatured") as boolean;
-      if (matured) {
-        console.log(`[tier1:rollover] adapter ${addr} matured (expiry: ${expiry}), rolling over to idle`);
+      const expiry = await publicClient.readContract({
+        address: market,
+        abi: pendleMarketAbi,
+        functionName: "expiry",
+      });
+
+      const now = BigInt(Math.floor(Date.now() / 1000));
+      if (expiry <= now) {
+        console.log(`[keeper:rollover] adapter ${addr} matured (expiry: ${expiry}), rolling over to idle`);
         await callRolloverToIdle(addr);
       }
     } catch {
-      console.log(`[tier1:rollover] adapter ${addr} expiry check failed, skipping`);
+      console.log(`[keeper:rollover] adapter ${addr} expiry check failed, skipping`);
     }
   }
 };
 
 const checkRateOptimization = async () => {
-  const paused = await readVault("paused");
-  if (paused) return;
-
-  const asset = await readVault("asset") as Address;
-  const adapters = await getActiveAdapters();
-  const allAdapters = await readVault("getAdapters") as Address[];
-
-  if (allAdapters.length < 2) return;
-
-  const rateMap = new Map<Address, bigint>();
-  for (const addr of allAdapters) {
-    try {
-      const supplyRate = await readAdapter(addr, "getSupplyRate", [asset]) as bigint;
-      const borrowRate = await readAdapter(addr, "getBorrowRate", [asset]) as bigint;
-      const net = supplyRate - borrowRate;
-      rateMap.set(addr, net);
-      console.log(`[tier2:rates] adapter ${addr} net rate: ${net}`);
-    } catch {
-      console.log(`[tier2:rates] adapter ${addr} rate check failed, skipping`);
-    }
-  }
-
-  // Find best adapter
-  let bestAdapter: Address | null = null;
-  let bestRate = -Infinity;
-  for (const [addr, rate] of rateMap) {
-    const rateNum = Number(rate);
-    if (rateNum > bestRate) {
-      bestRate = rateNum;
-      bestAdapter = addr;
-    }
-  }
-
-  if (!bestAdapter) return;
-
-  const currentBestWeight = adapters.find(a => a.address === bestAdapter)?.weight ?? 0n;
-  if (currentBestWeight >= 8000n) return;
-
-  // Find worst-performing active adapter
-  let worstAdapter: Address | null = null;
-  let worstRate = Infinity;
-  for (const { address: addr } of adapters) {
-    const rate = rateMap.get(addr);
-    if (rate === undefined) continue;
-    const rateNum = Number(rate);
-    if (rateNum < worstRate) {
-      worstRate = rateNum;
-      worstAdapter = addr;
-    }
-  }
-
-  if (!worstAdapter || worstAdapter === bestAdapter) return;
-
-  const improvement = BigInt(Math.floor(bestRate)) - BigInt(Math.floor(worstRate));
-  if (improvement <= BigInt(config.rateImprovementThresholdBps)) return;
-
-  // Gradual shift: move 20% of worst adapter's weight to best
-  const shiftBps = 2000n;
-  const worstWeight = adapters.find(a => a.address === worstAdapter)?.weight ?? 0n;
-  const shift = worstWeight * shiftBps / 10000n;
-
-  if (shift === 0n) return;
-
-  console.log(`[tier2:rates] shifting ${shift} bps from ${worstAdapter} to ${bestAdapter}`);
-
-  const newAdapters: Address[] = [];
-  const newWeights: bigint[] = [];
-  for (const { address: addr, weight } of adapters) {
-    newAdapters.push(addr);
-    if (addr === worstAdapter) {
-      newWeights.push(weight - shift);
-    } else if (addr === bestAdapter) {
-      newWeights.push(weight + shift);
-    } else {
-      newWeights.push(weight);
-    }
-  }
-
-  // If best adapter isn't active yet, add it
-  if (!adapters.find(a => a.address === bestAdapter)) {
-    newAdapters.push(bestAdapter);
-    newWeights.push(shift);
-    const worstIdx = newAdapters.indexOf(worstAdapter!);
-    if (worstIdx >= 0) {
-      newWeights[worstIdx] = worstWeight - shift;
-    }
-  }
-
-  await callSetWeights(newAdapters, newWeights);
+  console.log("[keeper:rates] skipped: current contract does not expose adapter rate metrics");
 };
 
 // ─── Scheduling ──────────────────────────────────────────────
@@ -396,12 +259,10 @@ export const startKeeper = () => {
   console.log(`[keeper] started — vault: ${vault}`);
   console.log(`[keeper] caller address: ${account.address}`);
 
-  // Tier 1 — permissionless ops (anyone can call, conditions checked on-chain)
   schedule("tier1:healthCheck", checkHealthFactor, config.healthCheckInterval);
   schedule("tier1:deployIdle", checkAndDeployIdle, config.deployIdleInterval);
   schedule("tier1:rollover", checkMaturedAdapters, config.deployIdleInterval);
 
-  // Tier 2 — strategist ops (requires strategist role)
   schedule("tier2:rateOptimize", checkRateOptimization, config.rateCheckInterval);
 };
 

@@ -94,9 +94,6 @@ export default function StrategiesPage() {
         </h2>
         <div className="grid gap-4 md:grid-cols-2">
           {adapters.map((adapter) => {
-            const netPosition = adapter.collateral - adapter.debt;
-            const leverage = netPosition > 0 ? adapter.collateral / netPosition : 0;
-
             return (
               <div
                 key={adapter.address}
@@ -110,25 +107,25 @@ export default function StrategiesPage() {
                     <div>
                       <div className="font-semibold font-mono">{shortAddr(adapter.address)}</div>
                       <div className="text-xs text-muted">
-                        {leverage > 0 ? `${fmt(leverage)}x` : "—"} leverage
+                        PT looping adapter
                       </div>
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="text-lg font-mono font-semibold text-accent">
-                      {fmt(adapter.supplyRate - adapter.borrowRate)}%
+                      {fmt(adapter.ptCollateral, 4)}
                     </div>
-                    <div className="text-xs text-muted">net rate</div>
+                    <div className="text-xs text-muted">PT collateral</div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
                   <div className="rounded-lg bg-surface-2 px-3 py-2.5">
                     <div className="text-[10px] uppercase text-muted tracking-wider mb-1">
-                      Collateral
+                      PT Collateral
                     </div>
                     <div className="text-sm font-mono font-medium">
-                      {fmtUsd(adapter.collateral)}
+                      {fmt(adapter.ptCollateral, 4)}
                     </div>
                   </div>
                   <div className="rounded-lg bg-surface-2 px-3 py-2.5">
@@ -150,9 +147,9 @@ export default function StrategiesPage() {
                 </div>
 
                 <div className="mt-3 pt-3 border-t border-border flex justify-between text-xs text-muted">
-                  <span>Net position</span>
+                  <span>Weight</span>
                   <span className="font-mono text-foreground">
-                    {fmtUsd(netPosition)}
+                    {fmt(adapter.weightBps / 100, 2)}%
                   </span>
                 </div>
               </div>

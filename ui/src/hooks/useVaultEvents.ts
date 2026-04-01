@@ -6,7 +6,7 @@ import { usePublicClient } from "wagmi";
 import { VAULT_ADDRESS, vaultEventAbi } from "@/config/contracts";
 
 const USDC_DECIMALS = 6;
-const BLOCKS_BACK = BigInt(10000); // ~5.5 hours on Base (2s blocks)
+const BLOCKS_BACK = BigInt(10000); // ~5.5 hours on Arbitrum (~2s blocks)
 
 export type VaultEvent = {
   type: "loop" | "deloop" | "rebalance" | "emergency" | "deploy" | "weights" | "migrate";
@@ -22,7 +22,7 @@ const EVENT_PARSERS: Record<string, (log: Log, args: Record<string, unknown>) =>
     blockNumber: log.blockNumber ?? BigInt(0),
     txHash: log.transactionHash ?? "",
     timestamp: 0,
-    details: `Looped ${formatUnits((args.collateral as bigint) ?? BigInt(0), USDC_DECIMALS)} USDC collateral`,
+    details: `Looped ${formatUnits((args.collateral as bigint) ?? BigInt(0), 18)} PT collateral`,
   }),
   Delooped: (log, args) => ({
     type: "deloop",

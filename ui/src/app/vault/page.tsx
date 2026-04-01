@@ -49,7 +49,6 @@ export default function VaultPage() {
   const withdrawalFee = vault?.withdrawalFee ?? 0.05;
   const numAmount = parseFloat(amount) || 0;
 
-  const totalCollateral = adapters.reduce((sum, a) => sum + a.collateral, 0);
   const totalDebt = adapters.reduce((sum, a) => sum + a.debt, 0);
   const avgHealthFactor = adapters.length > 0
     ? adapters.reduce((sum, a) => sum + a.healthFactor * a.weightBps, 0) / adapters.reduce((sum, a) => sum + a.weightBps, 0)
@@ -163,12 +162,10 @@ export default function VaultPage() {
                   Net APY
                 </div>
                 <div className="text-2xl font-mono font-semibold tabular-nums text-accent">
-                  {adapters.length > 0
-                    ? fmt(adapters.reduce((sum, a) => sum + (a.supplyRate - a.borrowRate) * a.weightBps, 0) / 10000)
-                    : "—"}%
+                  N/A
                 </div>
                 <div className="text-xs text-muted font-mono mt-0.5">
-                  weighted average
+                  rates not exposed on-chain
                 </div>
               </div>
             </div>
@@ -176,7 +173,7 @@ export default function VaultPage() {
             <div className="grid grid-cols-4 gap-px bg-border border-t border-border">
               {[
                 { label: "TVL", value: fmtUsd(vault?.totalAssets ?? 0) },
-                { label: "Collateral", value: fmtUsd(totalCollateral) },
+                { label: "Idle USDC", value: fmtUsd(vault?.idleAssets ?? 0) },
                 { label: "Debt", value: fmtUsd(totalDebt), color: "text-danger" },
                 {
                   label: "Health Factor",
@@ -243,8 +240,8 @@ export default function VaultPage() {
                     </div>
                     <div className="grid grid-cols-4 gap-3">
                       <div className="rounded-lg bg-surface-2 px-3 py-2">
-                        <div className="text-[10px] uppercase text-muted tracking-wider mb-0.5">Collateral</div>
-                        <div className="text-sm font-mono font-medium tabular-nums">{fmtUsd(a.collateral)}</div>
+                        <div className="text-[10px] uppercase text-muted tracking-wider mb-0.5">PT Collateral</div>
+                        <div className="text-sm font-mono font-medium tabular-nums">{fmt(a.ptCollateral, 4)}</div>
                       </div>
                       <div className="rounded-lg bg-surface-2 px-3 py-2">
                         <div className="text-[10px] uppercase text-muted tracking-wider mb-0.5">Debt</div>
@@ -255,8 +252,8 @@ export default function VaultPage() {
                         <div className={`text-sm font-mono font-medium tabular-nums ${healthColor(a.healthFactor)}`}>{fmt(a.healthFactor)}</div>
                       </div>
                       <div className="rounded-lg bg-surface-2 px-3 py-2">
-                        <div className="text-[10px] uppercase text-muted tracking-wider mb-0.5">Net Rate</div>
-                        <div className="text-sm font-mono font-medium tabular-nums text-accent">{fmt(a.supplyRate - a.borrowRate)}%</div>
+                        <div className="text-[10px] uppercase text-muted tracking-wider mb-0.5">Weight</div>
+                        <div className="text-sm font-mono font-medium tabular-nums text-accent">{fmt(a.weightBps / 100, 2)}%</div>
                       </div>
                     </div>
                   </div>
@@ -306,11 +303,11 @@ export default function VaultPage() {
                 },
                 {
                   step: "02",
-                  text: "Keeper swaps USDC to wstETH, splits across lending adapters, and loops each position",
+                  text: "The strategist swaps USDC into Pendle PT, posts PT as collateral, borrows USDC, and repeats the loop",
                 },
                 {
                   step: "03",
-                  text: "Share price grows as the supply-borrow spread compounds. Withdraw to USDC anytime.",
+                  text: "Vault shares track net asset value while the position is managed across configured adapters.",
                 },
               ].map((s) => (
                 <div key={s.step} className="flex items-start gap-3">
@@ -469,12 +466,8 @@ export default function VaultPage() {
                   )}
                   {tab === "deposit" && (
                     <div className="flex justify-between text-xs">
-                      <span className="text-muted">Projected APY</span>
-                      <span className="font-mono text-accent">
-                        {adapters.length > 0
-                          ? fmt(adapters.reduce((sum, a) => sum + (a.supplyRate - a.borrowRate) * a.weightBps, 0) / 10000)
-                          : "—"}%
-                      </span>
+                      <span className="text-muted">Strategy mode</span>
+                      <span className="font-mono text-accent">PT looping</span>
                     </div>
                   )}
                 </div>

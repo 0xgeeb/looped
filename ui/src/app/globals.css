@@ -18,6 +18,8 @@
   --warning-dim: rgba(255, 170, 0, 0.12);
   --muted: #565d6b;
   --muted-2: #3d434e;
+  --font-sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
 }
 
 @theme inline {
@@ -38,14 +40,12 @@
   --color-warning-dim: var(--warning-dim);
   --color-muted: var(--muted);
   --color-muted-2: var(--muted-2);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 /* Scrollbar */

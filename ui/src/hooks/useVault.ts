@@ -18,6 +18,7 @@ export function useVaultData() {
     contracts: [
       { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "totalAssets" },
       { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "totalSupply" },
+      { address: USDC_ADDRESS, abi: erc20Abi, functionName: "balanceOf", args: [VAULT_ADDRESS] },
       { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "targetLtv" },
       { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "targetLoops" },
       { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "targetBuffer" },
@@ -31,7 +32,7 @@ export function useVaultData() {
     return { isLoading: true, error, vault: null };
   }
 
-  const [totalAssets, totalSupply, targetLtv, targetLoops, targetBuffer, withdrawalFeeBps, paused, adapters] = data;
+  const [totalAssets, totalSupply, idleAssets, targetLtv, targetLoops, targetBuffer, withdrawalFeeBps, paused, adapters] = data;
 
   const totalAssetsNum = totalAssets.result
     ? Number(formatUnits(totalAssets.result as bigint, USDC_DECIMALS))
@@ -48,6 +49,9 @@ export function useVaultData() {
     vault: {
       totalAssets: totalAssetsNum,
       totalSupply: totalSupplyNum,
+      idleAssets: idleAssets.result
+        ? Number(formatUnits(idleAssets.result as bigint, USDC_DECIMALS))
+        : 0,
       sharePrice,
       targetLtv: targetLtv.result ? Number(targetLtv.result) / 100 : 0,
       targetLoops: targetLoops.result ? Number(targetLoops.result) : 0,
@@ -74,18 +78,6 @@ export function useAdapterPositions(adapterAddresses: Address[]) {
       abi: adapterAbi,
       functionName: "getHealthFactor" as const,
     },
-    {
-      address: addr,
-      abi: adapterAbi,
-      functionName: "getSupplyRate" as const,
-      args: [USDC_ADDRESS],
-    },
-    {
-      address: addr,
-      abi: adapterAbi,
-      functionName: "getBorrowRate" as const,
-      args: [USDC_ADDRESS],
-    },
   ]);
 
   const { data, isLoading } = useReadContracts({ contracts });
@@ -95,20 +87,16 @@ export function useAdapterPositions(adapterAddresses: Address[]) {
   }
 
   const adapters = adapterAddresses.map((addr, i) => {
-    const base = i * 4;
+    const base = i * 2;
     const position = data[base]?.result as [bigint, bigint, bigint] | undefined;
     const hf = data[base + 1]?.result as bigint | undefined;
-    const sr = data[base + 2]?.result as bigint | undefined;
-    const br = data[base + 3]?.result as bigint | undefined;
 
     return {
       address: addr,
-      collateral: position ? Number(formatUnits(position[0], USDC_DECIMALS)) : 0,
+      ptCollateral: position ? Number(formatUnits(position[0], 18)) : 0,
       debt: position ? Number(formatUnits(position[1], USDC_DECIMALS)) : 0,
       weightBps: position ? Number(position[2]) : 0,
       healthFactor: hf ? Number(formatUnits(hf, 18)) : 0,
-      supplyRate: sr ? Number(formatUnits(sr, 18)) * 100 : 0, // to %
-      borrowRate: br ? Number(formatUnits(br, 18)) * 100 : 0,
     };
   });
 

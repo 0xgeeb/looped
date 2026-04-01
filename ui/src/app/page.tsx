@@ -31,17 +31,10 @@ export default function Dashboard() {
   const { vault, isLoading } = useVaultData();
   const { adapters } = useAdapterPositions(vault?.adapters ?? []);
 
-  const totalCollateral = adapters.reduce((sum, a) => sum + a.collateral, 0);
   const totalDebt = adapters.reduce((sum, a) => sum + a.debt, 0);
-  const netPosition = totalCollateral - totalDebt;
-  const leverage = vault && vault.totalAssets > 0 ? totalCollateral / vault.totalAssets : 0;
   const avgHealthFactor = adapters.length > 0
     ? adapters.reduce((sum, a) => sum + a.healthFactor * a.weightBps, 0) / adapters.reduce((sum, a) => sum + a.weightBps, 0)
     : 0;
-  const netApy = adapters.length > 0
-    ? adapters.reduce((sum, a) => sum + (a.supplyRate - a.borrowRate) * a.weightBps, 0) / 10000
-    : 0;
-  const idleBuffer = vault ? vault.totalAssets - netPosition : 0;
 
   if (isLoading) {
     return (
@@ -72,8 +65,8 @@ export default function Dashboard() {
             <p className="text-xs font-mono text-muted uppercase tracking-wider mb-1">
               Net APY
             </p>
-            <div className="text-3xl font-semibold tracking-tight text-accent tabular-nums">
-              {fmt(netApy)}%
+            <div className="text-3xl font-semibold tracking-tight text-muted tabular-nums">
+              Live rates unavailable
             </div>
           </div>
         </div>
@@ -82,11 +75,11 @@ export default function Dashboard() {
         <div className="grid grid-cols-6 gap-px rounded-xl overflow-hidden bg-border">
           {[
             { label: "Share Price", value: fmtUsd(vault?.sharePrice ?? 0), color: "text-accent" },
-            { label: "Collateral", value: fmtUsd(totalCollateral) },
             { label: "Debt", value: fmtUsd(totalDebt), color: "text-danger" },
-            { label: "Leverage", value: leverage > 0 ? `${fmt(leverage)}x` : "—" },
+            { label: "Idle USDC", value: fmtUsd(vault?.idleAssets ?? 0) },
+            { label: "Adapters", value: String(adapters.length) },
             { label: "Health Factor", value: avgHealthFactor > 0 ? fmt(avgHealthFactor) : "—", color: avgHealthFactor > 0 ? healthColor(avgHealthFactor) : "text-muted" },
-            { label: "Idle Buffer", value: fmtUsd(idleBuffer > 0 ? idleBuffer : 0), color: "text-muted" },
+            { label: "Status", value: vault?.paused ? "PAUSED" : "ACTIVE", color: vault?.paused ? "text-danger" : "text-accent" },
           ].map((m, i) => (
             <div
               key={m.label}
@@ -147,16 +140,16 @@ export default function Dashboard() {
                   </div>
                   <div className="text-right">
                     <div className="text-xl font-mono font-semibold text-accent tabular-nums">
-                      {fmt(adapter.supplyRate - adapter.borrowRate)}%
+                      {fmt(adapter.ptCollateral, 4)}
                     </div>
                     <div className="text-[10px] text-muted uppercase tracking-wider">
-                      net rate
+                      PT collateral
                     </div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
-                  <Metric label="Collateral" value={fmtUsd(adapter.collateral)} />
+                  <Metric label="PT Collateral" value={fmt(adapter.ptCollateral, 4)} />
                   <Metric label="Debt" value={fmtUsd(adapter.debt)} color="text-danger" />
                   <Metric
                     label="Health"
