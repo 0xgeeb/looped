@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.34;
 
 import {IPendleRouter} from "../../src/interfaces/IPendleRouter.sol";
 import {MockERC20} from "./MockERC20.sol";

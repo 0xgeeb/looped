@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.34;
 
 import {Script, console} from "forge-std/Script.sol";
 import {Looped} from "../src/Looped.sol";

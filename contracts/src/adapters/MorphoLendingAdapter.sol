@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.34;
 
 import {ILendingAdapter} from "../interfaces/ILendingAdapter.sol";
 import {IMorpho, MarketParams, Position} from "../interfaces/IMorpho.sol";

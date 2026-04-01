@@ -1,21 +1,26 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.34;
 
-import {ERC4626} from "solady/tokens/ERC4626.sol";
-import {ERC20} from "solady/tokens/ERC20.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
-import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {ILendingAdapter} from "./interfaces/ILendingAdapter.sol";
-import {IPendleRouter, IPendleMarket} from "./interfaces/IPendleRouter.sol";
-import {IPendleOracle} from "./interfaces/IPendleOracle.sol";
+import { ERC4626 } from "solady/tokens/ERC4626.sol";
+import { ERC20 } from "solady/tokens/ERC20.sol";
+import { Ownable } from "solady/auth/Ownable.sol";
+import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
+import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
+import { ILendingAdapter } from "./interfaces/ILendingAdapter.sol";
+import { IPendleRouter , IPendleMarket} from "./interfaces/IPendleRouter.sol";
+import { IPendleOracle } from "./interfaces/IPendleOracle.sol";
 
+
+/// @title Looped
+/// @author geeb
 contract Looped is ERC4626, Ownable, ReentrancyGuard {
-    /*//////////////////////////////////////////////////////////////
-                                STATE
-    //////////////////////////////////////////////////////////////*/
 
-    address private immutable _asset;
+
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                      STATE VARIABLES                       */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    address private immutable usdc;
     address public strategist;
     uint8 public targetLoops;
     uint256 public targetLtv; // bps (e.g. 7000 = 70%)
@@ -98,7 +103,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         uint256 targetLtv_,
         uint256 minHealthFactor_
     ) {
-        _asset = asset_;
+        usdc = asset_;
         pendleRouter = IPendleRouter(pendleRouter_);
         pendleOracle = IPendleOracle(pendleOracle_);
         twapDuration = twapDuration_;
@@ -116,7 +121,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     function asset() public view override returns (address) {
-        return _asset;
+        return usdc;
     }
 
     function name() public pure override returns (string memory) {
@@ -133,7 +138,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
     /// @notice idle USDC + PT collateral (valued via Pendle TWAP) - debt
     function totalAssets() public view override returns (uint256) {
-        uint256 idle = ERC20(_asset).balanceOf(address(this));
+        uint256 idle = ERC20(usdc).balanceOf(address(this));
         uint256 net = idle;
         for (uint256 i = 0; i < adapters.length; i++) {
             ILendingAdapter adp = adapters[i];
@@ -150,7 +155,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
                 uint256 ptValueUsdc = ptCol * ptRate / 1e18 / 1e12;
                 net += ptValueUsdc;
             }
-            uint256 dbt = adp.getDebt(_asset);
+            uint256 dbt = adp.getDebt(usdc);
             net -= dbt;
         }
         return net;
@@ -160,7 +165,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     function _afterDeposit(uint256, uint256) internal override whenNotPaused {}
 
     function _beforeWithdraw(uint256 assets, uint256) internal override nonReentrant whenNotPaused {
-        uint256 idle = ERC20(_asset).balanceOf(address(this));
+        uint256 idle = ERC20(usdc).balanceOf(address(this));
         if (idle >= assets) return;
 
         uint256 needed = assets - idle;
@@ -172,7 +177,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
             address pt = adapterPt[adp];
             if (pt == address(0)) continue;
 
-            uint256 dbt = adp.getDebt(_asset);
+            uint256 dbt = adp.getDebt(usdc);
             uint256 ptCol = adp.getCollateral(pt);
             if (ptCol == 0 && dbt == 0) continue;
 
@@ -185,7 +190,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
             uint256 toFree = needed < available ? needed : available;
             _deloop(toFree, adp);
 
-            uint256 idleNow = ERC20(_asset).balanceOf(address(this));
+            uint256 idleNow = ERC20(usdc).balanceOf(address(this));
             needed = idleNow >= assets ? 0 : assets - idleNow;
         }
     }
@@ -226,7 +231,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         for (uint8 i = 0; i < targetLoops; i++) {
             // Read position and compute borrowable
             uint256 ptCol = adapter.getCollateral(pt);
-            uint256 dbt = adapter.getDebt(_asset);
+            uint256 dbt = adapter.getDebt(usdc);
 
             // Value collateral in USDC via TWAP
             uint256 ptRate = pendleOracle.getPtToAssetRate(market, twapDuration);
@@ -236,7 +241,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
             if (borrowAmt == 0) break;
 
             // Borrow USDC
-            adapter.borrow(_asset, borrowAmt);
+            adapter.borrow(usdc, borrowAmt);
 
             // Swap borrowed USDC → PT
             uint256 morePt = _swapUsdcToPt(borrowAmt, market);
@@ -248,7 +253,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
         if (adapter.getHealthFactor() < minHealthFactor) revert HealthFactorTooLow();
 
-        emit PositionLooped(address(adapter), adapter.getCollateral(pt), adapter.getDebt(_asset));
+        emit PositionLooped(address(adapter), adapter.getCollateral(pt), adapter.getDebt(usdc));
     }
 
     /// @dev Withdraw PT collateral, swap PT → USDC, repay debt, repeat
@@ -259,7 +264,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
         while (freed < neededUsdc) {
             uint256 ptCol = adapter.getCollateral(pt);
-            uint256 dbt = adapter.getDebt(_asset);
+            uint256 dbt = adapter.getDebt(usdc);
             uint256 maxLtv = adapter.getMaxLtv(pt);
 
             // Compute min collateral in PT terms to maintain LTV
@@ -276,7 +281,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
             uint256 toWithdrawPt = maxWithdrawPt < neededPt ? maxWithdrawPt : neededPt;
 
             // Withdraw PT from lending protocol
-            uint256 balBefore = ERC20(_asset).balanceOf(address(this));
+            uint256 balBefore = ERC20(usdc).balanceOf(address(this));
             try adapter.withdraw(pt, toWithdrawPt) {} catch { break; }
 
             // Swap PT → USDC
@@ -285,8 +290,8 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
             if (dbt > 0) {
                 uint256 repayAmt = usdcReceived < dbt ? usdcReceived : dbt;
                 if (repayAmt > 0) {
-                    SafeTransferLib.safeApprove(_asset, address(adapter), repayAmt);
-                    adapter.repay(_asset, repayAmt);
+                    SafeTransferLib.safeApprove(usdc, address(adapter), repayAmt);
+                    adapter.repay(usdc, repayAmt);
                     freed += usdcReceived > repayAmt ? usdcReceived - repayAmt : 0;
                 }
             } else {
@@ -299,7 +304,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
     function _deloopAll(ILendingAdapter adapter) internal {
         address pt = adapterPt[adapter];
-        uint256 dbt = adapter.getDebt(_asset);
+        uint256 dbt = adapter.getDebt(usdc);
         if (dbt > 0) {
             // Value total position in USDC
             uint256 ptCol = adapter.getCollateral(pt);
@@ -326,12 +331,12 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     function _swapUsdcToPt(uint256 usdcAmount, address market) internal returns (uint256 ptOut) {
-        SafeTransferLib.safeApprove(_asset, address(pendleRouter), usdcAmount);
+        SafeTransferLib.safeApprove(usdc, address(pendleRouter), usdcAmount);
 
         IPendleRouter.TokenInput memory input = IPendleRouter.TokenInput({
-            tokenIn: _asset,
+            tokenIn: usdc,
             netTokenIn: usdcAmount,
-            tokenMintSy: _asset,
+            tokenMintSy: usdc,
             pendleSwap: address(0),
             swapData: IPendleRouter.SwapData({
                 swapType: IPendleRouter.SwapType.NONE,
@@ -364,9 +369,9 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         SafeTransferLib.safeApprove(pt, address(pendleRouter), ptAmount);
 
         IPendleRouter.TokenOutput memory output = IPendleRouter.TokenOutput({
-            tokenOut: _asset,
+            tokenOut: usdc,
             minTokenOut: 0,
-            tokenRedeemSy: _asset,
+            tokenRedeemSy: usdc,
             pendleSwap: address(0),
             swapData: IPendleRouter.SwapData({
                 swapType: IPendleRouter.SwapType.NONE,
@@ -394,7 +399,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
     /// @notice Deploy idle USDC above buffer into weighted adapters.
     function deployIdle() external onlyStrategist nonReentrant whenNotPaused {
-        uint256 idle = ERC20(_asset).balanceOf(address(this));
+        uint256 idle = ERC20(usdc).balanceOf(address(this));
         uint256 total = totalAssets();
         uint256 bufferTarget = total * targetBuffer / 10000;
         if (idle <= bufferTarget) return;
@@ -442,11 +447,11 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
             if (adapterWeightBps[adp] == 0) continue;
             address pt = adapterPt[adp];
             if (pt == address(0)) continue;
-            if (adp.getCollateral(pt) == 0 && adp.getDebt(_asset) == 0) continue;
+            if (adp.getCollateral(pt) == 0 && adp.getDebt(usdc) == 0) continue;
             _deloopAll(adp);
         }
 
-        uint256 idle = ERC20(_asset).balanceOf(address(this));
+        uint256 idle = ERC20(usdc).balanceOf(address(this));
         uint256 bufferTarget = idle * targetBuffer / 10000;
         uint256 deployable = idle > bufferTarget ? idle - bufferTarget : 0;
 
@@ -464,9 +469,9 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         if (market == address(0)) revert NoMarketSet();
         if (block.timestamp < IPendleMarket(market).expiry()) revert NotMatured();
 
-        uint256 idleBefore = ERC20(_asset).balanceOf(address(this));
+        uint256 idleBefore = ERC20(usdc).balanceOf(address(this));
         _deloopAll(adapter);
-        uint256 idleAfter = ERC20(_asset).balanceOf(address(this));
+        uint256 idleAfter = ERC20(usdc).balanceOf(address(this));
         uint256 freed = idleAfter > idleBefore ? idleAfter - idleBefore : 0;
 
         // Clear market mapping
@@ -491,7 +496,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
         emit AdapterMarketSet(address(adapter), pendleMarket, pt);
 
         // Deploy idle into this adapter
-        uint256 idle = ERC20(_asset).balanceOf(address(this));
+        uint256 idle = ERC20(usdc).balanceOf(address(this));
         uint256 total = totalAssets();
         uint256 bufferTarget = total * targetBuffer / 10000;
         if (idle <= bufferTarget) return;
@@ -524,7 +529,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
         // Deploy into target if it has a market set
         if (adapterMarket[to] != address(0)) {
-            uint256 idle = ERC20(_asset).balanceOf(address(this));
+            uint256 idle = ERC20(usdc).balanceOf(address(this));
             uint256 total = totalAssets();
             uint256 bufferTarget = total * targetBuffer / 10000;
             uint256 deployable = idle > bufferTarget ? idle - bufferTarget : 0;
@@ -551,7 +556,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
             address pt = adapterPt[adapter];
             if (pt == address(0)) continue;
 
-            uint256 dbt = adapter.getDebt(_asset);
+            uint256 dbt = adapter.getDebt(usdc);
             while (dbt > 0) {
                 uint256 ptCol = adapter.getCollateral(pt);
                 uint256 maxLtv = adapter.getMaxLtv(pt);
@@ -574,11 +579,11 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
                 uint256 repayAmt = usdcReceived < dbt ? usdcReceived : dbt;
                 if (repayAmt > 0) {
-                    SafeTransferLib.safeApprove(_asset, address(adapter), repayAmt);
-                    adapter.repay(_asset, repayAmt);
+                    SafeTransferLib.safeApprove(usdc, address(adapter), repayAmt);
+                    adapter.repay(usdc, repayAmt);
                 }
 
-                dbt = adapter.getDebt(_asset);
+                dbt = adapter.getDebt(usdc);
             }
 
             // Withdraw remaining collateral
@@ -615,7 +620,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
 
         address pt = adapterPt[a];
         if (pt != address(0)) {
-            if (a.getCollateral(pt) > 0 || a.getDebt(_asset) > 0) revert InvalidParams();
+            if (a.getCollateral(pt) > 0 || a.getDebt(usdc) > 0) revert InvalidParams();
         }
 
         isActiveAdapter[a] = false;
@@ -665,7 +670,7 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     ) {
         address pt = adapterPt[adapter];
         col = pt != address(0) ? adapter.getCollateral(pt) : 0;
-        dbt = adapter.getDebt(_asset);
+        dbt = adapter.getDebt(usdc);
         weightBps = adapterWeightBps[adapter];
     }
 

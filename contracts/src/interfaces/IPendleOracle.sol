@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.34;
 
 interface IPendleOracle {
     function getPtToAssetRate(address market, uint32 duration) external view returns (uint256);
