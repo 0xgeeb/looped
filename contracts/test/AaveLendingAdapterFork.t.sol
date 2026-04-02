@@ -10,22 +10,24 @@ interface IERC20Like {
 }
 
 contract AaveLendingAdapterForkTest is Test {
-    uint256 internal constant FORK_BLOCK = 448_026_554;
+    uint256 FORK_BLOCK = 448_026_554;
+    string ARBITRUM_RPC_URL = vm.envString("ARBITRUM_RPC_URL");
 
-    address internal constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
-    address internal constant WETH = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
-    address internal constant AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
-    address internal constant AAVE_DATA_PROVIDER = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
+    address USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
+    address WETH = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
+    address AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
+    address AAVE_DATA_PROVIDER = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
 
-    uint256 internal constant SUPPLY_AMOUNT = 1 ether;
-    uint256 internal constant BORROW_AMOUNT = 500e6;
+    uint256 SUPPLY_AMOUNT = 1 ether;
+    uint256 BORROW_AMOUNT = 500e6;
 
     AaveLendingAdapter internal adapter;
     address internal alice = makeAddr("alice");
 
     function setUp() public {
         // Every test starts from the exact same Arbitrum state.
-        vm.createSelectFork("arbitrum", FORK_BLOCK);
+        uint256 arbitrumFork = vm.createFork(ARBITRUM_RPC_URL, FORK_BLOCK);
+        vm.selectFork(arbitrumFork);
 
         adapter = new AaveLendingAdapter(address(this), AAVE_POOL, AAVE_DATA_PROVIDER);
 
@@ -49,7 +51,13 @@ contract AaveLendingAdapterForkTest is Test {
         assertGt(adapter.getHealthFactor(), 1e18, "health factor should remain above 1.0");
 
         adapter.repay(USDC, BORROW_AMOUNT);
-        assertLe(adapter.getDebt(USDC), 2, "debt should be near-zero after repay");
+        uint256 residualDebt = adapter.getDebt(USDC);
+        assertLe(residualDebt, 2, "debt should be near-zero after repay");
+        if (residualDebt > 0) {
+            deal(USDC, address(this), residualDebt);
+            adapter.repay(USDC, residualDebt);
+            assertEq(adapter.getDebt(USDC), 0, "debt dust should be fully cleared before withdraw");
+        }
 
         adapter.withdraw(WETH, collateralAfterSupply);
         assertLe(adapter.getCollateral(WETH), 1, "collateral should be cleared after withdraw");
@@ -74,7 +82,7 @@ contract AaveLendingAdapterForkTest is Test {
         vm.stopPrank();
     }
 
-    function testFork_liveReserveMetadataLooksSane() public view {
+    function testFork_liveReserveMetadataLooksSane() public {
         uint256 wethMaxLtv = adapter.getMaxLtv(WETH);
 
         assertGt(wethMaxLtv, 0, "WETH should be enabled as collateral");

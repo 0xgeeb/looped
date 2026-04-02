@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
+
 import { ERC4626 } from "solady/tokens/ERC4626.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { Ownable } from "solady/auth/Ownable.sol";
@@ -20,33 +21,45 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     /*                      STATE VARIABLES                       */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
+
     address private immutable usdc;
+
     address public strategist;
+
     uint8 public targetLoops;
+
     uint256 public targetLtv; // bps (e.g. 7000 = 70%)
+
     uint256 public minHealthFactor; // 1e18 scaled
+
     uint256 public targetBuffer; // bps of totalAssets (e.g. 500 = 5%)
+
     uint256 public withdrawalFeeBps; // e.g. 5 = 0.05%
+
     uint256 public maxSwapSlippageBps; // e.g. 50 = 0.5%
+
     bool public paused;
 
-    // Pendle
     IPendleRouter public pendleRouter;
+
     IPendleOracle public pendleOracle;
+
     uint32 public twapDuration;
 
-    // Multi-adapter
     ILendingAdapter[] public adapters;
+    
     mapping(ILendingAdapter => bool) public isActiveAdapter;
+
     mapping(ILendingAdapter => uint256) public adapterWeightBps;
 
-    // Per-adapter Pendle market tracking
     mapping(ILendingAdapter => address) public adapterMarket; // Pendle market
+
     mapping(ILendingAdapter => address) public adapterPt;     // PT token
 
-    /*//////////////////////////////////////////////////////////////
-                                ERRORS
-    //////////////////////////////////////////////////////////////*/
+
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                           ERRORS                           */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     error Paused();
     error OnlyStrategist();
