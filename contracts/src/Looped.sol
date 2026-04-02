@@ -691,19 +691,6 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
                           PARAM SETTERS
     //////////////////////////////////////////////////////////////*/
 
-    function setTargetLoops(uint8 _targetLoops) external onlyOwner {
-        targetLoops = _targetLoops;
-    }
-
-    function setTargetLtv(uint256 _targetLtv) external onlyOwner {
-        if (_targetLtv > 9500) revert InvalidParams();
-        targetLtv = _targetLtv;
-    }
-
-    function setMinHealthFactor(uint256 _minHealthFactor) external onlyOwner {
-        minHealthFactor = _minHealthFactor;
-    }
-
     function setStrategist(address _strategist) external onlyOwner {
         strategist = _strategist;
         emit StrategistUpdated(_strategist);
@@ -722,18 +709,6 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     function setMaxSwapSlippageBps(uint256 _maxSwapSlippageBps) external onlyOwner {
         if (_maxSwapSlippageBps > 500) revert InvalidParams();
         maxSwapSlippageBps = _maxSwapSlippageBps;
-    }
-
-    function setPendleRouter(address _pendleRouter) external onlyOwner {
-        pendleRouter = IPendleRouter(_pendleRouter);
-    }
-
-    function setPendleOracle(address _pendleOracle) external onlyOwner {
-        pendleOracle = IPendleOracle(_pendleOracle);
-    }
-
-    function setTwapDuration(uint32 _twapDuration) external onlyOwner {
-        twapDuration = _twapDuration;
     }
 
     function unpause() external onlyOwner {

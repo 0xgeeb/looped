@@ -479,7 +479,7 @@ contract LoopedTest is Test {
     function test_onlyOwnerAdmin() public {
         vm.prank(alice);
         vm.expectRevert();
-        vault.setTargetLoops(5);
+        vault.setStrategist(alice);
 
         vm.prank(alice);
         vm.expectRevert();
@@ -501,15 +501,6 @@ contract LoopedTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     function test_setParams() public {
-        vault.setTargetLoops(5);
-        assertEq(vault.targetLoops(), 5);
-
-        vault.setTargetLtv(8000);
-        assertEq(vault.targetLtv(), 8000);
-
-        vault.setMinHealthFactor(1.2e18);
-        assertEq(vault.minHealthFactor(), 1.2e18);
-
         vault.setStrategist(bob);
         assertEq(vault.strategist(), bob);
 
@@ -521,14 +512,6 @@ contract LoopedTest is Test {
 
         vault.setMaxSwapSlippageBps(100);
         assertEq(vault.maxSwapSlippageBps(), 100);
-
-        vault.setTwapDuration(1800);
-        assertEq(vault.twapDuration(), 1800);
-    }
-
-    function test_setTargetLtvMaxCap() public {
-        vm.expectRevert(Looped.InvalidParams.selector);
-        vault.setTargetLtv(9600);
     }
 
     function test_setTargetBufferMaxCap() public {

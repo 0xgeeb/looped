@@ -8,9 +8,19 @@
         "internalType": "address"
       },
       {
-        "name": "adapter_",
+        "name": "pendleRouter_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "pendleOracle_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "twapDuration_",
+        "type": "uint32",
+        "internalType": "uint32"
       },
       {
         "name": "targetLoops_",
@@ -45,13 +55,57 @@
   },
   {
     "type": "function",
-    "name": "activeAdapter",
-    "inputs": [],
-    "outputs": [
+    "name": "adapterMarket",
+    "inputs": [
       {
         "name": "",
         "type": "address",
         "internalType": "contract ILendingAdapter"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "adapterPt",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract ILendingAdapter"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "adapterWeightBps",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract ILendingAdapter"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -279,6 +333,35 @@
   },
   {
     "type": "function",
+    "name": "getAdapterPosition",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "internalType": "contract ILendingAdapter"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "col",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "dbt",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "weightBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getAdapters",
     "inputs": [],
     "outputs": [
@@ -305,19 +388,6 @@
         "name": "",
         "type": "bool",
         "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "keeper",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -373,6 +443,19 @@
     "outputs": [
       {
         "name": "maxShares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxSwapSlippageBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -532,6 +615,32 @@
   },
   {
     "type": "function",
+    "name": "pendleOracle",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IPendleOracle"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendleRouter",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IPendleRouter"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "permit",
     "inputs": [
       {
@@ -658,19 +767,6 @@
   },
   {
     "type": "function",
-    "name": "rebalanceTriggerHF",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "redeem",
     "inputs": [
       {
@@ -727,10 +823,15 @@
   },
   {
     "type": "function",
-    "name": "setAdapter",
+    "name": "rollInto",
     "inputs": [
       {
-        "name": "_adapter",
+        "name": "adapter",
+        "type": "address",
+        "internalType": "contract ILendingAdapter"
+      },
+      {
+        "name": "pendleMarket",
         "type": "address",
         "internalType": "address"
       }
@@ -740,38 +841,56 @@
   },
   {
     "type": "function",
-    "name": "setKeeper",
+    "name": "rolloverToIdle",
     "inputs": [
       {
-        "name": "_keeper",
+        "name": "adapter",
+        "type": "address",
+        "internalType": "contract ILendingAdapter"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setAdapterWeights",
+    "inputs": [
+      {
+        "name": "_adapters",
+        "type": "address[]",
+        "internalType": "contract ILendingAdapter[]"
+      },
+      {
+        "name": "_weights",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setMaxSwapSlippageBps",
+    "inputs": [
+      {
+        "name": "_maxSwapSlippageBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setStrategist",
+    "inputs": [
+      {
+        "name": "_strategist",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setMinHealthFactor",
-    "inputs": [
-      {
-        "name": "_minHealthFactor",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setRebalanceTriggerHF",
-    "inputs": [
-      {
-        "name": "_rebalanceTriggerHF",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -792,32 +911,6 @@
   },
   {
     "type": "function",
-    "name": "setTargetLoops",
-    "inputs": [
-      {
-        "name": "_targetLoops",
-        "type": "uint8",
-        "internalType": "uint8"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setTargetLtv",
-    "inputs": [
-      {
-        "name": "_targetLtv",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setWithdrawalFeeBps",
     "inputs": [
       {
@@ -828,6 +921,19 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "strategist",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -975,6 +1081,19 @@
   },
   {
     "type": "function",
+    "name": "twapDuration",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "unpause",
     "inputs": [],
     "outputs": [],
@@ -1030,6 +1149,31 @@
         "name": "adapter",
         "type": "address",
         "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "AdapterMarketSet",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "market",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "pt",
+        "type": "address",
+        "indexed": false,
         "internalType": "address"
       }
     ],
@@ -1097,6 +1241,12 @@
     "name": "Delooped",
     "inputs": [
       {
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
         "name": "assetsFreed",
         "type": "uint256",
         "indexed": false,
@@ -1157,19 +1307,6 @@
   },
   {
     "type": "event",
-    "name": "KeeperUpdated",
-    "inputs": [
-      {
-        "name": "newKeeper",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "OwnershipHandoverCanceled",
     "inputs": [
       {
@@ -1218,7 +1355,13 @@
     "name": "PositionLooped",
     "inputs": [
       {
-        "name": "collateral",
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "ptCollateral",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1236,6 +1379,57 @@
     "type": "event",
     "name": "Rebalanced",
     "inputs": [],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RolledInto",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "pendleMarket",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RolledOverToIdle",
+    "inputs": [
+      {
+        "name": "adapter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "StrategistUpdated",
+    "inputs": [
+      {
+        "name": "newStrategist",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
     "anonymous": false
   },
   {
@@ -1261,6 +1455,12 @@
         "internalType": "uint256"
       }
     ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "WeightsUpdated",
+    "inputs": [],
     "anonymous": false
   },
   {
@@ -1372,7 +1572,17 @@
   },
   {
     "type": "error",
-    "name": "OnlyKeeper",
+    "name": "NoMarketSet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotMatured",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OnlyStrategist",
     "inputs": []
   },
   {
@@ -1408,6 +1618,11 @@
   {
     "type": "error",
     "name": "Unauthorized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WeightsMismatch",
     "inputs": []
   },
   {
