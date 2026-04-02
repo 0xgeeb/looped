@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import {Test} from "forge-std/Test.sol";
 import {Looped} from "../src/Looped.sol";
 import {ILendingAdapter} from "../src/interfaces/ILendingAdapter.sol";
+import {ILooped} from "../src/interfaces/ILooped.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockLendingAdapter} from "./mocks/MockLendingAdapter.sol";
 import {MockPendleRouter} from "./mocks/MockPendleRouter.sol";
@@ -126,7 +127,7 @@ contract LoopedTest is Test {
         _setupAdapterMarket();
 
         vm.prank(alice);
-        vm.expectRevert(Looped.OnlyStrategist.selector);
+        vm.expectRevert(ILooped.OnlyStrategist.selector);
         vault.deployIdle();
     }
 
@@ -263,7 +264,7 @@ contract LoopedTest is Test {
         _depositAndDeploy(1000e6);
 
         vm.prank(alice);
-        vm.expectRevert(Looped.OnlyStrategist.selector);
+        vm.expectRevert(ILooped.OnlyStrategist.selector);
         vault.rebalance();
     }
 
@@ -277,7 +278,7 @@ contract LoopedTest is Test {
     }
 
     function test_cannotAddDuplicateAdapter() public {
-        vm.expectRevert(Looped.AdapterAlreadyRegistered.selector);
+        vm.expectRevert(ILooped.AdapterAlreadyRegistered.selector);
         vault.addAdapter(address(adapter));
     }
 
@@ -298,7 +299,7 @@ contract LoopedTest is Test {
         w[1] = 4000;
         vault.setAdapterWeights(a, w);
 
-        vm.expectRevert(Looped.InvalidParams.selector);
+        vm.expectRevert(ILooped.InvalidParams.selector);
         vault.removeAdapter(address(adapter2));
     }
 
@@ -326,7 +327,7 @@ contract LoopedTest is Test {
         a[1] = ILendingAdapter(address(adapter2));
         w[0] = 5000;
         w[1] = 3000;
-        vm.expectRevert(Looped.InvalidParams.selector);
+        vm.expectRevert(ILooped.InvalidParams.selector);
         vault.setAdapterWeights(a, w);
     }
 
@@ -384,7 +385,7 @@ contract LoopedTest is Test {
         _depositAndDeploy(1000e6);
 
         vm.prank(strategist);
-        vm.expectRevert(Looped.NotMatured.selector);
+        vm.expectRevert(ILooped.NotMatured.selector);
         vault.rolloverToIdle(ILendingAdapter(address(adapter)));
     }
 
@@ -440,7 +441,7 @@ contract LoopedTest is Test {
         vault.addAdapter(address(adapter2));
 
         vm.prank(alice);
-        vm.expectRevert(Looped.OnlyStrategist.selector);
+        vm.expectRevert(ILooped.OnlyStrategist.selector);
         vault.migrateAdapter(ILendingAdapter(address(adapter)), ILendingAdapter(address(adapter2)));
     }
 
@@ -463,7 +464,7 @@ contract LoopedTest is Test {
         vault.emergencyDeleverage();
 
         vm.prank(alice);
-        vm.expectRevert(Looped.Paused.selector);
+        vm.expectRevert(ILooped.Paused.selector);
         vault.deposit(1000e6, alice);
     }
 
@@ -515,12 +516,12 @@ contract LoopedTest is Test {
     }
 
     function test_setTargetBufferMaxCap() public {
-        vm.expectRevert(Looped.InvalidParams.selector);
+        vm.expectRevert(ILooped.InvalidParams.selector);
         vault.setTargetBuffer(2100);
     }
 
     function test_setWithdrawalFeeMaxCap() public {
-        vm.expectRevert(Looped.InvalidParams.selector);
+        vm.expectRevert(ILooped.InvalidParams.selector);
         vault.setWithdrawalFeeBps(101);
     }
 

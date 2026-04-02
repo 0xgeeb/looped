@@ -7,6 +7,7 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { Ownable } from "solady/auth/Ownable.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
+import { ILooped } from "./interfaces/ILooped.sol";
 import { ILendingAdapter } from "./interfaces/ILendingAdapter.sol";
 import { IPendleRouter , IPendleMarket} from "./interfaces/IPendleRouter.sol";
 import { IPendleOracle } from "./interfaces/IPendleOracle.sol";
@@ -14,7 +15,7 @@ import { IPendleOracle } from "./interfaces/IPendleOracle.sol";
 
 /// @title Looped
 /// @author geeb
-contract Looped is ERC4626, Ownable, ReentrancyGuard {
+contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -55,39 +56,6 @@ contract Looped is ERC4626, Ownable, ReentrancyGuard {
     mapping(ILendingAdapter => address) public adapterMarket; // Pendle market
 
     mapping(ILendingAdapter => address) public adapterPt;     // PT token
-
-
-    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
-    /*                           ERRORS                           */
-    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
-
-    error Paused();
-    error OnlyStrategist();
-    error HealthFactorTooLow();
-    error InvalidParams();
-    error AdapterNotRegistered();
-    error AdapterAlreadyRegistered();
-    error WeightsMismatch();
-    error NotMatured();
-    error NoMarketSet();
-
-    /*//////////////////////////////////////////////////////////////
-                                EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    event PositionLooped(address indexed adapter, uint256 ptCollateral, uint256 debt);
-    event Delooped(address indexed adapter, uint256 assetsFreed);
-    event Rebalanced();
-    event EmergencyDeleveraged();
-    event StrategistUpdated(address indexed newStrategist);
-    event AdapterAdded(address indexed adapter);
-    event AdapterRemoved(address indexed adapter);
-    event AdapterMigrated(address indexed from, address indexed to);
-    event IdleDeployed(uint256 amount);
-    event WeightsUpdated();
-    event RolledOverToIdle(address indexed adapter, uint256 amount);
-    event RolledInto(address indexed adapter, address indexed pendleMarket);
-    event AdapterMarketSet(address indexed adapter, address indexed market, address pt);
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
