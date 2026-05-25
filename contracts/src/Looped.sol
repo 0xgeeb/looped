@@ -57,9 +57,9 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
     mapping(ILendingAdapter => address) public adapterPt;     // PT token
 
-    /*//////////////////////////////////////////////////////////////
-                              MODIFIERS
-    //////////////////////////////////////////////////////////////*/
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                         MODIFIERS                          */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     modifier whenNotPaused() {
         if (paused) revert Paused();
@@ -71,9 +71,9 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         _;
     }
 
-    /*//////////////////////////////////////////////////////////////
-                             CONSTRUCTOR
-    //////////////////////////////////////////////////////////////*/
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                        CONSTRUCTOR                         */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     constructor(
         address asset_,
@@ -97,9 +97,9 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         _initializeOwner(msg.sender);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                           ERC4626 OVERRIDES
-    //////////////////////////////////////////////////////////////*/
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                     ERC4626 OVERRIDES                      */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     function asset() public view override returns (address) {
         return usdc;
@@ -176,9 +176,9 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         }
     }
 
-    /*//////////////////////////////////////////////////////////////
-                          WITHDRAWAL FEE
-    //////////////////////////////////////////////////////////////*/
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                       WITHDRAWAL FEE                       */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     function previewWithdraw(uint256 assets) public view override returns (uint256 shares) {
         uint256 grossAssets = withdrawalFeeBps > 0
@@ -192,9 +192,9 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         assets = grossAssets - (grossAssets * withdrawalFeeBps / 10000);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                            LOOP / DELOOP
-    //////////////////////////////////////////////////////////////*/
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                       LOOP / DELOOP                        */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /// @dev Swap USDC → PT, supply PT as collateral, borrow USDC, repeat
     function _loop(uint256 amount, ILendingAdapter adapter) internal {
@@ -307,9 +307,9 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         }
     }
 
-    /*//////////////////////////////////////////////////////////////
-                          PENDLE SWAPS
-    //////////////////////////////////////////////////////////////*/
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                        PENDLE SWAPS                        */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     function _swapUsdcToPt(uint256 usdcAmount, address market) internal returns (uint256 ptOut) {
         SafeTransferLib.safeApprove(usdc, address(pendleRouter), usdcAmount);
@@ -374,9 +374,9 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         }
     }
 
-    /*//////////////////////////////////////////////////////////////
-                        STRATEGIST OPS
-    //////////////////////////////////////////////////////////////*/
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                       STRATEGIST OPS                       */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /// @notice Deploy idle USDC above buffer into weighted adapters.
     function deployIdle() external onlyStrategist nonReentrant whenNotPaused {
@@ -526,9 +526,9 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         emit AdapterMigrated(address(from), address(to));
     }
 
-    /*//////////////////////////////////////////////////////////////
-                          OWNER OPS
-    //////////////////////////////////////////////////////////////*/
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                         OWNER OPS                          */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     function emergencyDeleverage() external onlyOwner nonReentrant {
         for (uint256 i = 0; i < adapters.length; i++) {
@@ -582,9 +582,9 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         emit EmergencyDeleveraged();
     }
 
-    /*//////////////////////////////////////////////////////////////
-                          ADAPTER MANAGEMENT
-    //////////////////////////////////////////////////////////////*/
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                     ADAPTER MANAGEMENT                     */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     function addAdapter(address _adapter) external onlyOwner {
         ILendingAdapter a = ILendingAdapter(_adapter);
@@ -655,9 +655,9 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         weightBps = adapterWeightBps[adapter];
     }
 
-    /*//////////////////////////////////////////////////////////////
-                          PARAM SETTERS
-    //////////////////////////////////////////////////////////////*/
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                       PARAM SETTERS                        */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     function setStrategist(address _strategist) external onlyOwner {
         strategist = _strategist;
