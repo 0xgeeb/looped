@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useConnect, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { arbitrum } from "wagmi/chains";
 import { parseUnits } from "viem";
 import { useVaultData, useAdapterPositions, useUserPosition } from "@/hooks/useVault";
 import { VAULT_ADDRESS, USDC_ADDRESS, isVaultConfigured, vaultAbi, erc20Abi } from "@/config/contracts";
@@ -36,8 +37,9 @@ export default function VaultPage() {
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
   const [amount, setAmount] = useState("");
 
-  const { address, isConnected } = useAccount();
+  const { address, chainId, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
+  const { switchChain, isPending: switchPending } = useSwitchChain();
   const { vault, isLoading: vaultLoading } = useVaultData();
   const { adapters } = useAdapterPositions(vault?.adapters ?? []);
   const { user } = useUserPosition(address);
@@ -68,39 +70,43 @@ export default function VaultPage() {
   const needsApproval = user
     ? user.allowance < parseUnits(String(numAmount || 0), USDC_DECIMALS)
     : false;
+  const isWrongChain = isConnected && chainId !== arbitrum.id;
 
   const handleApprove = () => {
-    if (!isVaultConfigured) return;
+    if (!isVaultConfigured || isWrongChain) return;
     writeContract({
       address: USDC_ADDRESS,
       abi: erc20Abi,
       functionName: "approve",
       args: [VAULT_ADDRESS, parseUnits(String(numAmount), USDC_DECIMALS)],
+      chainId: arbitrum.id,
     });
   };
 
   const handleDeposit = () => {
-    if (!address || !isVaultConfigured) return;
+    if (!address || !isVaultConfigured || isWrongChain) return;
     writeContract({
       address: VAULT_ADDRESS,
       abi: vaultAbi,
       functionName: "deposit",
       args: [parseUnits(String(numAmount), USDC_DECIMALS), address],
+      chainId: arbitrum.id,
     });
   };
 
   const handleWithdraw = () => {
-    if (!address || !isVaultConfigured) return;
+    if (!address || !isVaultConfigured || isWrongChain) return;
     writeContract({
       address: VAULT_ADDRESS,
       abi: vaultAbi,
       functionName: "withdraw",
       args: [parseUnits(String(numAmount), USDC_DECIMALS), address, address],
+      chainId: arbitrum.id,
     });
   };
 
   const busy = txPending || txConfirming;
-  const actionDisabled = !isVaultConfigured || numAmount <= 0 || busy;
+  const actionDisabled = !isVaultConfigured || isWrongChain || numAmount <= 0 || busy;
 
   const configuredBanner = !isVaultConfigured && (
     <div className="mb-5 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
@@ -109,6 +115,17 @@ export default function VaultPage() {
       </div>
       <p className="text-sm text-muted leading-relaxed">
         Set NEXT_PUBLIC_VAULT_ADDRESS to a deployed vault address before using deposits, withdrawals, or live vault reads.
+      </p>
+    </div>
+  );
+
+  const chainBanner = isWrongChain && (
+    <div className="mb-5 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+      <div className="text-xs font-semibold uppercase tracking-wider text-warning mb-1">
+        Wrong network
+      </div>
+      <p className="text-sm text-muted leading-relaxed">
+        Switch your wallet to Arbitrum before approving USDC, depositing, or withdrawing.
       </p>
     </div>
   );
@@ -370,6 +387,7 @@ export default function VaultPage() {
 
             <div className="p-5">
               {configuredBanner}
+              {chainBanner}
 
               {/* Amount Input */}
               <div className="mb-4">
@@ -493,7 +511,15 @@ export default function VaultPage() {
 
               {/* Action Button */}
               {isConnected ? (
-                tab === "deposit" && needsApproval && numAmount > 0 ? (
+                isWrongChain ? (
+                  <button
+                    onClick={() => switchChain({ chainId: arbitrum.id })}
+                    disabled={switchPending}
+                    className="w-full py-3.5 rounded-lg bg-accent text-background text-sm font-semibold hover:bg-accent-dim transition-all active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {switchPending ? "Switching..." : "Switch to Arbitrum"}
+                  </button>
+                ) : tab === "deposit" && needsApproval && numAmount > 0 ? (
                   <button
                     onClick={handleApprove}
                     disabled={busy || !isVaultConfigured}
