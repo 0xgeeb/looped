@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { parseUnits } from "viem";
 import { useVaultData, useAdapterPositions, useUserPosition } from "@/hooks/useVault";
-import { VAULT_ADDRESS, USDC_ADDRESS, vaultAbi, erc20Abi } from "@/config/contracts";
+import { VAULT_ADDRESS, USDC_ADDRESS, isVaultConfigured, vaultAbi, erc20Abi } from "@/config/contracts";
 
 const USDC_DECIMALS = 6;
 const ADAPTER_COLORS = ["bg-accent", "bg-warning", "bg-blue-400", "bg-purple-400"];
@@ -70,6 +70,7 @@ export default function VaultPage() {
     : false;
 
   const handleApprove = () => {
+    if (!isVaultConfigured) return;
     writeContract({
       address: USDC_ADDRESS,
       abi: erc20Abi,
@@ -79,7 +80,7 @@ export default function VaultPage() {
   };
 
   const handleDeposit = () => {
-    if (!address) return;
+    if (!address || !isVaultConfigured) return;
     writeContract({
       address: VAULT_ADDRESS,
       abi: vaultAbi,
@@ -89,7 +90,7 @@ export default function VaultPage() {
   };
 
   const handleWithdraw = () => {
-    if (!address) return;
+    if (!address || !isVaultConfigured) return;
     writeContract({
       address: VAULT_ADDRESS,
       abi: vaultAbi,
@@ -99,6 +100,18 @@ export default function VaultPage() {
   };
 
   const busy = txPending || txConfirming;
+  const actionDisabled = !isVaultConfigured || numAmount <= 0 || busy;
+
+  const configuredBanner = !isVaultConfigured && (
+    <div className="mb-5 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+      <div className="text-xs font-semibold uppercase tracking-wider text-warning mb-1">
+        Vault not configured
+      </div>
+      <p className="text-sm text-muted leading-relaxed">
+        Set NEXT_PUBLIC_VAULT_ADDRESS to a deployed vault address before using deposits, withdrawals, or live vault reads.
+      </p>
+    </div>
+  );
 
   if (vaultLoading) {
     return (
@@ -129,7 +142,9 @@ export default function VaultPage() {
               </span>
             </div>
             <div className="flex items-center gap-3 text-xs text-muted mt-0.5">
-              <span className="font-mono">{shortAddr(VAULT_ADDRESS)}</span>
+              <span className="font-mono">
+                {isVaultConfigured ? shortAddr(VAULT_ADDRESS) : "Not configured"}
+              </span>
               <span>&middot;</span>
               <span>{adapters.length} adapter{adapters.length !== 1 ? "s" : ""}</span>
             </div>
@@ -354,6 +369,8 @@ export default function VaultPage() {
             </div>
 
             <div className="p-5">
+              {configuredBanner}
+
               {/* Amount Input */}
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
@@ -375,6 +392,7 @@ export default function VaultPage() {
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="0.00"
+                    disabled={!isVaultConfigured}
                     className="flex-1 bg-transparent text-xl font-mono font-medium outline-none text-foreground tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                   <div className="flex items-center gap-2 shrink-0">
@@ -478,7 +496,7 @@ export default function VaultPage() {
                 tab === "deposit" && needsApproval && numAmount > 0 ? (
                   <button
                     onClick={handleApprove}
-                    disabled={busy}
+                    disabled={busy || !isVaultConfigured}
                     className="w-full py-3.5 rounded-lg bg-surface-3 border border-accent/30 text-sm font-semibold text-accent hover:bg-surface-2 transition-all active:scale-[0.98] disabled:opacity-50"
                   >
                     {busy ? "Approving..." : `Approve USDC`}
@@ -486,14 +504,16 @@ export default function VaultPage() {
                 ) : (
                   <button
                     onClick={tab === "deposit" ? handleDeposit : handleWithdraw}
-                    disabled={numAmount <= 0 || busy}
+                    disabled={actionDisabled}
                     className={`w-full py-3.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-50 ${
-                      numAmount > 0
+                      numAmount > 0 && isVaultConfigured
                         ? "bg-accent text-background hover:bg-accent-dim active:scale-[0.98]"
                         : "bg-surface-2 text-muted cursor-not-allowed"
                     }`}
                   >
-                    {busy
+                    {!isVaultConfigured
+                      ? "Vault not configured"
+                      : busy
                       ? "Confirming..."
                       : tab === "deposit"
                         ? numAmount > 0

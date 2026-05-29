@@ -5,6 +5,7 @@ import { formatUnits, type Address } from "viem";
 import {
   VAULT_ADDRESS,
   USDC_ADDRESS,
+  isVaultConfigured,
   vaultAbi,
   erc20Abi,
   adapterAbi,
@@ -26,7 +27,14 @@ export function useVaultData() {
       { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "paused" },
       { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "getAdapters" },
     ],
+    query: {
+      enabled: isVaultConfigured,
+    },
   });
+
+  if (!isVaultConfigured) {
+    return { isLoading: false, error: null, vault: null };
+  }
 
   if (!data || isLoading) {
     return { isLoading: true, error, vault: null };
@@ -80,9 +88,18 @@ export function useAdapterPositions(adapterAddresses: Address[]) {
     },
   ]);
 
-  const { data, isLoading } = useReadContracts({ contracts });
+  const { data, isLoading } = useReadContracts({
+    contracts,
+    query: {
+      enabled: isVaultConfigured && adapterAddresses.length > 0,
+    },
+  });
 
-  if (!data || isLoading || adapterAddresses.length === 0) {
+  if (!isVaultConfigured || adapterAddresses.length === 0) {
+    return { isLoading: false, adapters: [] };
+  }
+
+  if (!data || isLoading) {
     return { isLoading: true, adapters: [] };
   }
 
@@ -106,7 +123,7 @@ export function useAdapterPositions(adapterAddresses: Address[]) {
 // ── User position ────────────────────────────────────────────────
 export function useUserPosition(userAddress: Address | undefined) {
   const { data, isLoading } = useReadContracts({
-    contracts: userAddress
+    contracts: userAddress && isVaultConfigured
       ? [
           {
             address: USDC_ADDRESS,
@@ -128,7 +145,14 @@ export function useUserPosition(userAddress: Address | undefined) {
           },
         ]
       : [],
+    query: {
+      enabled: Boolean(userAddress) && isVaultConfigured,
+    },
   });
+
+  if (!isVaultConfigured) {
+    return { isLoading: false, user: null };
+  }
 
   if (!data || isLoading || !userAddress) {
     return { isLoading: !userAddress ? false : true, user: null };
@@ -159,6 +183,9 @@ export function useShareValue(shares: bigint) {
     abi: vaultAbi,
     functionName: "convertToAssets",
     args: [shares],
+    query: {
+      enabled: isVaultConfigured,
+    },
   });
 
   return data ? Number(formatUnits(data, USDC_DECIMALS)) : 0;

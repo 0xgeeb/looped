@@ -1,9 +1,16 @@
-import { parseAbi, type Address } from "viem";
+import { isAddress, parseAbi, zeroAddress, type Address } from "viem";
 
 // ── Deployed addresses (update with real address after deploy) ───────
-export const VAULT_ADDRESS: Address =
-  (process.env.NEXT_PUBLIC_VAULT_ADDRESS as Address) ??
-  "0x0000000000000000000000000000000000000000";
+const configuredVaultAddress = process.env.NEXT_PUBLIC_VAULT_ADDRESS;
+
+export const isVaultConfigured =
+  configuredVaultAddress !== undefined &&
+  isAddress(configuredVaultAddress) &&
+  configuredVaultAddress !== zeroAddress;
+
+export const VAULT_ADDRESS: Address = isVaultConfigured
+  ? (configuredVaultAddress as Address)
+  : zeroAddress;
 export const USDC_ADDRESS: Address = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // Arbitrum USDC
 
 // ── ABIs ─────────────────────────────────────────────────────────────
