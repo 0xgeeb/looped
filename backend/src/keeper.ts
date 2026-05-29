@@ -3,6 +3,7 @@ import {
   createWalletClient,
   http,
   type Address,
+  type Hash,
   parseAbi,
   formatUnits,
 } from "viem";
@@ -58,6 +59,84 @@ const walletClient = createWalletClient({
 const timers: NodeJS.Timeout[] = [];
 let running = false;
 
+type JobName = "healthCheck" | "deployIdle" | "rollover" | "rateOptimize";
+
+type KeeperJobStatus = {
+  lastStartedAt: string | null;
+  lastSucceededAt: string | null;
+  lastErrorAt: string | null;
+  lastError: string | null;
+};
+
+type KeeperStatus = {
+  running: boolean;
+  dryRun: boolean;
+  vaultAddress: Address;
+  keeperAddress: Address;
+  chainId: number;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  lastSuccessfulJob: string | null;
+  lastError: string | null;
+  jobs: Record<JobName, KeeperJobStatus>;
+};
+
+const emptyJobStatus = (): KeeperJobStatus => ({
+  lastStartedAt: null,
+  lastSucceededAt: null,
+  lastErrorAt: null,
+  lastError: null,
+});
+
+const keeperStatus: KeeperStatus = {
+  running,
+  dryRun: config.dryRun,
+  vaultAddress: vault,
+  keeperAddress: account.address,
+  chainId: arbitrum.id,
+  startedAt: null,
+  stoppedAt: null,
+  lastSuccessfulJob: null,
+  lastError: null,
+  jobs: {
+    healthCheck: emptyJobStatus(),
+    deployIdle: emptyJobStatus(),
+    rollover: emptyJobStatus(),
+    rateOptimize: emptyJobStatus(),
+  },
+};
+
+const formatError = (err: unknown) => {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return JSON.stringify(err);
+};
+
+const markJobStarted = (name: JobName) => {
+  keeperStatus.jobs[name].lastStartedAt = new Date().toISOString();
+};
+
+const markJobSucceeded = (name: JobName) => {
+  const now = new Date().toISOString();
+  keeperStatus.jobs[name].lastSucceededAt = now;
+  keeperStatus.jobs[name].lastError = null;
+  keeperStatus.lastSuccessfulJob = name;
+};
+
+const markJobFailed = (name: JobName, err: unknown) => {
+  const now = new Date().toISOString();
+  const message = formatError(err);
+  keeperStatus.jobs[name].lastErrorAt = now;
+  keeperStatus.jobs[name].lastError = message;
+  keeperStatus.lastError = `[${name}] ${message}`;
+};
+
+const waitForHash = async (job: JobName, hash: Hash) => {
+  console.log(`[keeper:${job}] tx sent: ${hash}`);
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  console.log(`[keeper:${job}] confirmed block ${receipt.blockNumber}`);
+};
+
 // ─── Reads ───────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -94,38 +173,51 @@ const getActiveAdapters = async (): Promise<{ address: Address; weight: bigint }
 
 const callDeployIdle = async () => {
   try {
+    if (config.dryRun) {
+      console.log("[keeper:deployIdle] dry run: would call deployIdle()");
+      return;
+    }
+
     const hash = await walletClient.writeContract({
       chain: arbitrum,
       address: vault,
       abi: vaultAbi,
       functionName: "deployIdle",
     });
-    console.log(`[keeper:deployIdle] tx sent: ${hash}`);
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log(`[keeper:deployIdle] confirmed block ${receipt.blockNumber}`);
+    await waitForHash("deployIdle", hash);
   } catch (err) {
     console.error("[keeper:deployIdle] failed:", err);
+    throw err;
   }
 };
 
 const callRebalance = async () => {
   try {
+    if (config.dryRun) {
+      console.log("[keeper:healthCheck] dry run: would call rebalance()");
+      return;
+    }
+
     const hash = await walletClient.writeContract({
       chain: arbitrum,
       address: vault,
       abi: vaultAbi,
       functionName: "rebalance",
     });
-    console.log(`[keeper:rebalance] tx sent: ${hash}`);
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log(`[keeper:rebalance] confirmed block ${receipt.blockNumber}`);
+    await waitForHash("healthCheck", hash);
   } catch (err) {
     console.error("[keeper:rebalance] failed:", err);
+    throw err;
   }
 };
 
 const callRolloverToIdle = async (adapterAddr: Address) => {
   try {
+    if (config.dryRun) {
+      console.log(`[keeper:rollover] dry run: would call rolloverToIdle(${adapterAddr})`);
+      return;
+    }
+
     const hash = await walletClient.writeContract({
       chain: arbitrum,
       address: vault,
@@ -133,11 +225,10 @@ const callRolloverToIdle = async (adapterAddr: Address) => {
       functionName: "rolloverToIdle",
       args: [adapterAddr],
     });
-    console.log(`[keeper:rollover] tx sent for ${adapterAddr}: ${hash}`);
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log(`[keeper:rollover] confirmed block ${receipt.blockNumber}`);
+    await waitForHash("rollover", hash);
   } catch (err) {
     console.error(`[keeper:rollover] failed for ${adapterAddr}:`, err);
+    throw err;
   }
 };
 
@@ -239,13 +330,16 @@ const checkRateOptimization = async () => {
 
 // ─── Scheduling ──────────────────────────────────────────────
 
-const schedule = (name: string, fn: () => Promise<void>, intervalMs: number) => {
+const schedule = (name: JobName, fn: () => Promise<void>, intervalMs: number) => {
   const wrapped = async () => {
     if (!running) return;
+    markJobStarted(name);
     try {
       await fn();
+      markJobSucceeded(name);
     } catch (err) {
-      console.error(`[${name}] error:`, err);
+      markJobFailed(name, err);
+      console.error(`[keeper:${name}] error:`, err);
     }
   };
   void wrapped();
@@ -255,20 +349,40 @@ const schedule = (name: string, fn: () => Promise<void>, intervalMs: number) => 
 // ─── Public API ──────────────────────────────────────────────
 
 export const startKeeper = () => {
+  if (running) return;
+
   running = true;
+  keeperStatus.running = true;
+  keeperStatus.startedAt = new Date().toISOString();
+  keeperStatus.stoppedAt = null;
+
   console.log(`[keeper] started — vault: ${vault}`);
   console.log(`[keeper] caller address: ${account.address}`);
+  if (config.dryRun) console.log("[keeper] dry run enabled - transactions will not be sent");
 
-  schedule("tier1:healthCheck", checkHealthFactor, config.healthCheckInterval);
-  schedule("tier1:deployIdle", checkAndDeployIdle, config.deployIdleInterval);
-  schedule("tier1:rollover", checkMaturedAdapters, config.deployIdleInterval);
+  schedule("healthCheck", checkHealthFactor, config.healthCheckInterval);
+  schedule("deployIdle", checkAndDeployIdle, config.deployIdleInterval);
+  schedule("rollover", checkMaturedAdapters, config.deployIdleInterval);
 
-  schedule("tier2:rateOptimize", checkRateOptimization, config.rateCheckInterval);
+  schedule("rateOptimize", checkRateOptimization, config.rateCheckInterval);
 };
 
 export const stopKeeper = () => {
   running = false;
+  keeperStatus.running = false;
+  keeperStatus.stoppedAt = new Date().toISOString();
+
   for (const timer of timers) clearInterval(timer);
   timers.length = 0;
   console.log("[keeper] stopped");
 };
+
+export const getKeeperStatus = () => ({
+  ...keeperStatus,
+  jobs: {
+    healthCheck: { ...keeperStatus.jobs.healthCheck },
+    deployIdle: { ...keeperStatus.jobs.deployIdle },
+    rollover: { ...keeperStatus.jobs.rollover },
+    rateOptimize: { ...keeperStatus.jobs.rateOptimize },
+  },
+});

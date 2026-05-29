@@ -1,22 +1,90 @@
 import "dotenv/config";
+import { isAddress, zeroAddress, type Address } from "viem";
 
-export const config = {
-  rpcUrl: process.env.RPC_URL || "http://127.0.0.1:8545",
-  privateKey: process.env.KEEPER_PRIVATE_KEY as `0x${string}`,
-  vaultAddress: process.env.VAULT_ADDRESS as `0x${string}`,
-  port: Number(process.env.PORT) || 3001,
+type HexPrivateKey = `0x${string}`;
 
-  // Intervals (ms)
-  healthCheckInterval: Number(process.env.HEALTH_CHECK_INTERVAL) || 30_000, // 30s
-  deployIdleInterval: Number(process.env.DEPLOY_IDLE_INTERVAL) || 300_000, // 5min
-  periodicRebalanceInterval: Number(process.env.PERIODIC_REBALANCE_INTERVAL) || 86_400_000, // 24h
-  rateCheckInterval: Number(process.env.RATE_CHECK_INTERVAL) || 3_600_000, // 1h
+export type BackendConfig = {
+  rpcUrl: string;
+  privateKey: HexPrivateKey;
+  vaultAddress: Address;
+  port: number;
+  dryRun: boolean;
+  healthCheckInterval: number;
+  deployIdleInterval: number;
+  periodicRebalanceInterval: number;
+  rateCheckInterval: number;
+  idleDeployThresholdBps: number;
+  rateImprovementThresholdBps: number;
+  migrationCooldownMs: number;
+  yieldzUrl: string;
+};
 
-  // Thresholds
-  idleDeployThresholdBps: Number(process.env.IDLE_DEPLOY_THRESHOLD_BPS) || 15000, // 150% of buffer = deploy
-  rateImprovementThresholdBps: Number(process.env.RATE_IMPROVEMENT_THRESHOLD_BPS) || 50, // 0.5% APY improvement to migrate
-  migrationCooldownMs: Number(process.env.MIGRATION_COOLDOWN_MS) || 86_400_000, // 24h
+const PRIVATE_KEY_REGEX = /^0x[0-9a-fA-F]{64}$/;
 
-  // Rate scanner
-  yieldzUrl: process.env.YIELDZ_URL || "https://yieldz.io/borrow",
-} as const;
+const readNumber = (
+  env: NodeJS.ProcessEnv,
+  key: string,
+  fallback: number,
+  errors: string[],
+) => {
+  const raw = env[key];
+  if (raw === undefined || raw === "") return fallback;
+
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    errors.push(`${key} must be a positive number`);
+    return fallback;
+  }
+
+  return value;
+};
+
+const readBoolean = (env: NodeJS.ProcessEnv, key: string, fallback = false) => {
+  const raw = env[key];
+  if (raw === undefined || raw === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+};
+
+export const validateConfig = (env: NodeJS.ProcessEnv = process.env): BackendConfig => {
+  const errors: string[] = [];
+  const privateKey = env.KEEPER_PRIVATE_KEY;
+  const vaultAddress = env.VAULT_ADDRESS;
+
+  if (!privateKey || !PRIVATE_KEY_REGEX.test(privateKey)) {
+    errors.push("KEEPER_PRIVATE_KEY must be a 32-byte hex private key");
+  }
+
+  if (!vaultAddress || !isAddress(vaultAddress) || vaultAddress === zeroAddress) {
+    errors.push("VAULT_ADDRESS must be a non-zero EVM address");
+  }
+
+  const config = {
+    rpcUrl: env.RPC_URL || "http://127.0.0.1:8545",
+    privateKey: (privateKey ?? "0x") as HexPrivateKey,
+    vaultAddress: (vaultAddress ?? zeroAddress) as Address,
+    port: readNumber(env, "PORT", 3001, errors),
+    dryRun: readBoolean(env, "DRY_RUN", false),
+
+    // Intervals (ms)
+    healthCheckInterval: readNumber(env, "HEALTH_CHECK_INTERVAL", 30_000, errors),
+    deployIdleInterval: readNumber(env, "DEPLOY_IDLE_INTERVAL", 300_000, errors),
+    periodicRebalanceInterval: readNumber(env, "PERIODIC_REBALANCE_INTERVAL", 86_400_000, errors),
+    rateCheckInterval: readNumber(env, "RATE_CHECK_INTERVAL", 3_600_000, errors),
+
+    // Thresholds
+    idleDeployThresholdBps: readNumber(env, "IDLE_DEPLOY_THRESHOLD_BPS", 15_000, errors),
+    rateImprovementThresholdBps: readNumber(env, "RATE_IMPROVEMENT_THRESHOLD_BPS", 50, errors),
+    migrationCooldownMs: readNumber(env, "MIGRATION_COOLDOWN_MS", 86_400_000, errors),
+
+    // Rate scanner
+    yieldzUrl: env.YIELDZ_URL || "https://yieldz.io/borrow",
+  } satisfies BackendConfig;
+
+  if (errors.length > 0) {
+    throw new Error(`Invalid backend config:\n${errors.map((error) => `- ${error}`).join("\n")}`);
+  }
+
+  return config;
+};
+
+export const config = validateConfig();

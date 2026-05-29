@@ -1,13 +1,16 @@
 import express from "express";
 import { config } from "./config.js";
-import { startKeeper, stopKeeper } from "./keeper.js";
+import { getKeeperStatus, startKeeper, stopKeeper } from "./keeper.js";
 
 const app = express();
 
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
+  res.json({
+    status: "ok",
+    keeper: getKeeperStatus(),
+  });
 });
 
 app.listen(config.port, () => {

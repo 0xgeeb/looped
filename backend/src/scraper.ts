@@ -1,5 +1,7 @@
+import "dotenv/config";
 import { chromium, type Browser } from "playwright";
-import { config } from "./config.js";
+
+const yieldzUrl = process.env.YIELDZ_URL || "https://yieldz.io/borrow";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -52,11 +54,11 @@ export const scrapeYieldz = async (): Promise<YieldzMarket[]> => {
   let browser: Browser | null = null;
 
   try {
-    console.log(`[scraper] launching browser, navigating to ${config.yieldzUrl}`);
+    console.log(`[scraper] launching browser, navigating to ${yieldzUrl}`);
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
 
-    await page.goto(config.yieldzUrl, { waitUntil: "networkidle", timeout: 30_000 });
+    await page.goto(yieldzUrl, { waitUntil: "networkidle", timeout: 30_000 });
 
     // Wait for table rows to appear
     await page.waitForSelector("table tbody tr", { timeout: 15_000 });
