@@ -11,6 +11,13 @@ import { ILooped } from "./interfaces/ILooped.sol";
 import { ILendingAdapter } from "./interfaces/ILendingAdapter.sol";
 import { IPendleRouter , IPendleMarket} from "./interfaces/IPendleRouter.sol";
 import { IPendleOracle } from "./interfaces/IPendleOracle.sol";
+// state variables
+// constructor
+// external view functions
+// external functions
+// internal view functions
+// internal functions
+// permissioned functions
 
 
 /// @title Looped
@@ -23,6 +30,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
 
+    // todo: add natspec to state variables
     address private immutable usdc;
 
     address public strategist;
@@ -57,10 +65,12 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
     mapping(ILendingAdapter => address) public adapterPt;     // PT token
 
+
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         MODIFIERS                          */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
+    // todo: remove modifiers 
     modifier whenNotPaused() {
         if (paused) revert Paused();
         _;
@@ -71,10 +81,12 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         _;
     }
 
+
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                        CONSTRUCTOR                         */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
+    // todo: add natspec to constructor
     constructor(
         address asset_,
         address pendleRouter_,
@@ -97,100 +109,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         _initializeOwner(msg.sender);
     }
 
-    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
-    /*                     ERC4626 OVERRIDES                      */
-    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
-
-    function asset() public view override returns (address) {
-        return usdc;
-    }
-
-    function name() public pure override returns (string memory) {
-        return "Looped";
-    }
-
-    function symbol() public pure override returns (string memory) {
-        return "LOOPED";
-    }
-
-    function _decimalsOffset() internal pure override returns (uint8) {
-        return 6;
-    }
-
-    /// @notice idle USDC + PT collateral (valued via Pendle TWAP) - debt
-    function totalAssets() public view override returns (uint256) {
-        uint256 idle = ERC20(usdc).balanceOf(address(this));
-        uint256 net = idle;
-        for (uint256 i = 0; i < adapters.length; i++) {
-            ILendingAdapter adp = adapters[i];
-            if (adapterWeightBps[adp] == 0) continue;
-            address market = adapterMarket[adp];
-            if (market == address(0)) continue;
-            address pt = adapterPt[adp];
-
-            uint256 ptCol = adp.getCollateral(pt);
-            if (ptCol > 0) {
-                // PT value in underlying asset terms (1e18 scaled rate)
-                uint256 ptRate = pendleOracle.getPtToAssetRate(market, twapDuration);
-                // PT is 18 decimals, USDC is 6 decimals: ptCol * rate / 1e18 gives 18-decimal value, / 1e12 for USDC
-                uint256 ptValueUsdc = ptCol * ptRate / 1e18 / 1e12;
-                net += ptValueUsdc;
-            }
-            uint256 dbt = adp.getDebt(usdc);
-            net -= dbt;
-        }
-        return net;
-    }
-
-    /// @dev Deposits land idle — strategist deploys via deployIdle()
-    function _afterDeposit(uint256, uint256) internal override whenNotPaused {}
-
-    function _beforeWithdraw(uint256 assets, uint256) internal override nonReentrant whenNotPaused {
-        uint256 idle = ERC20(usdc).balanceOf(address(this));
-        if (idle >= assets) return;
-
-        uint256 needed = assets - idle;
-
-        // Deloop from adapters until we have enough
-        for (uint256 i = 0; i < adapters.length && needed > 0; i++) {
-            ILendingAdapter adp = adapters[i];
-            if (adapterWeightBps[adp] == 0) continue;
-            address pt = adapterPt[adp];
-            if (pt == address(0)) continue;
-
-            uint256 dbt = adp.getDebt(usdc);
-            uint256 ptCol = adp.getCollateral(pt);
-            if (ptCol == 0 && dbt == 0) continue;
-
-            // Value PT collateral in USDC terms
-            uint256 ptRate = pendleOracle.getPtToAssetRate(adapterMarket[adp], twapDuration);
-            uint256 colUsdc = ptCol * ptRate / 1e18 / 1e12;
-            if (colUsdc <= dbt) continue;
-
-            uint256 available = colUsdc - dbt;
-            uint256 toFree = needed < available ? needed : available;
-            _deloop(toFree, adp);
-
-            uint256 idleNow = ERC20(usdc).balanceOf(address(this));
-            needed = idleNow >= assets ? 0 : assets - idleNow;
-        }
-    }
-
-    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
-    /*                       WITHDRAWAL FEE                       */
-    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
-
-    function previewWithdraw(uint256 assets) public view override returns (uint256 shares) {
-        uint256 grossAssets = withdrawalFeeBps > 0
-            ? (assets * 10000 + 10000 - withdrawalFeeBps - 1) / (10000 - withdrawalFeeBps)
-            : assets;
-        shares = super.previewWithdraw(grossAssets);
-    }
-
-    function previewRedeem(uint256 shares) public view override returns (uint256 assets) {
-        uint256 grossAssets = super.previewRedeem(shares);
-        assets = grossAssets - (grossAssets * withdrawalFeeBps / 10000);
-    }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                       LOOP / DELOOP                        */
@@ -373,6 +291,100 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             );
         }
     }
+
+
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                     ERC4626 OVERRIDES                      */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+
+    function asset() public view override returns (address) {
+        return usdc;
+    }
+
+    function name() public pure override returns (string memory) {
+        return "Looped";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "LOOPED";
+    }
+
+    function _decimalsOffset() internal pure override returns (uint8) {
+        return 6;
+    }
+
+    /// @notice idle USDC + PT collateral (valued via Pendle TWAP) - debt
+    function totalAssets() public view override returns (uint256) {
+        uint256 idle = ERC20(usdc).balanceOf(address(this));
+        uint256 net = idle;
+        for (uint256 i = 0; i < adapters.length; i++) {
+            ILendingAdapter adp = adapters[i];
+            if (adapterWeightBps[adp] == 0) continue;
+            address market = adapterMarket[adp];
+            if (market == address(0)) continue;
+            address pt = adapterPt[adp];
+
+            uint256 ptCol = adp.getCollateral(pt);
+            if (ptCol > 0) {
+                // PT value in underlying asset terms (1e18 scaled rate)
+                uint256 ptRate = pendleOracle.getPtToAssetRate(market, twapDuration);
+                // PT is 18 decimals, USDC is 6 decimals: ptCol * rate / 1e18 gives 18-decimal value, / 1e12 for USDC
+                uint256 ptValueUsdc = ptCol * ptRate / 1e18 / 1e12;
+                net += ptValueUsdc;
+            }
+            uint256 dbt = adp.getDebt(usdc);
+            net -= dbt;
+        }
+        return net;
+    }
+
+    /// @dev Deposits land idle — strategist deploys via deployIdle()
+    function _afterDeposit(uint256, uint256) internal override whenNotPaused {}
+
+    function _beforeWithdraw(uint256 assets, uint256) internal override nonReentrant whenNotPaused {
+        uint256 idle = ERC20(usdc).balanceOf(address(this));
+        if (idle >= assets) return;
+
+        uint256 needed = assets - idle;
+
+        // Deloop from adapters until we have enough
+        for (uint256 i = 0; i < adapters.length && needed > 0; i++) {
+            ILendingAdapter adp = adapters[i];
+            if (adapterWeightBps[adp] == 0) continue;
+            address pt = adapterPt[adp];
+            if (pt == address(0)) continue;
+
+            uint256 dbt = adp.getDebt(usdc);
+            uint256 ptCol = adp.getCollateral(pt);
+            if (ptCol == 0 && dbt == 0) continue;
+
+            // Value PT collateral in USDC terms
+            uint256 ptRate = pendleOracle.getPtToAssetRate(adapterMarket[adp], twapDuration);
+            uint256 colUsdc = ptCol * ptRate / 1e18 / 1e12;
+            if (colUsdc <= dbt) continue;
+
+            uint256 available = colUsdc - dbt;
+            uint256 toFree = needed < available ? needed : available;
+            _deloop(toFree, adp);
+
+            uint256 idleNow = ERC20(usdc).balanceOf(address(this));
+            needed = idleNow >= assets ? 0 : assets - idleNow;
+        }
+    }
+
+    function previewWithdraw(uint256 assets) public view override returns (uint256 shares) {
+        uint256 grossAssets = withdrawalFeeBps > 0
+            ? (assets * 10000 + 10000 - withdrawalFeeBps - 1) / (10000 - withdrawalFeeBps)
+            : assets;
+        shares = super.previewWithdraw(grossAssets);
+    }
+
+    function previewRedeem(uint256 shares) public view override returns (uint256 assets) {
+        uint256 grossAssets = super.previewRedeem(shares);
+        assets = grossAssets - (grossAssets * withdrawalFeeBps / 10000);
+    }
+
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                       STRATEGIST OPS                       */
