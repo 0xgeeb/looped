@@ -71,6 +71,8 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
     mapping(ILendingAdapter => address) public adapterUnderlying; // SY yield token
 
+    mapping(address => bool) public isSupportedUnderlying;
+
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         MODIFIERS                          */
@@ -112,6 +114,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         targetBuffer = 500; // 5% default
         withdrawalFeeBps = 5; // 0.05% default
         maxSwapSlippageBps = 50; // 0.5% default
+        isSupportedUnderlying[asset_] = true;
         _initializeOwner(msg.sender);
     }
 
@@ -315,6 +318,11 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         return IPendleSy(sy).yieldToken();
     }
 
+    function _validateMarketMetadata(address sy, address pt, address yt, address underlying) internal view {
+        if (sy == address(0) || pt == address(0) || yt == address(0)) revert InvalidParams();
+        if (underlying == address(0) || !isSupportedUnderlying[underlying]) revert UnsupportedUnderlying();
+    }
+
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                     ERC4626 OVERRIDES                      */
@@ -506,11 +514,14 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         if (!isActiveAdapter[adapter]) revert AdapterNotRegistered();
 
         (address sy, address pt, address yt) = IPendleMarket(pendleMarket).readTokens();
+        address underlying = _readSyYieldToken(sy);
+        _validateMarketMetadata(sy, pt, yt, underlying);
+
         adapterMarket[adapter] = pendleMarket;
         adapterSy[adapter] = sy;
         adapterPt[adapter] = pt;
         adapterYt[adapter] = yt;
-        adapterUnderlying[adapter] = _readSyYieldToken(sy);
+        adapterUnderlying[adapter] = underlying;
 
         emit AdapterMarketSet(address(adapter), pendleMarket, pt);
 
@@ -718,6 +729,11 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     function setMaxSwapSlippageBps(uint256 _maxSwapSlippageBps) external onlyOwner {
         if (_maxSwapSlippageBps > 500) revert InvalidParams();
         maxSwapSlippageBps = _maxSwapSlippageBps;
+    }
+
+    function setSupportedUnderlying(address underlying, bool supported) external onlyOwner {
+        if (underlying == address(0)) revert InvalidParams();
+        isSupportedUnderlying[underlying] = supported;
     }
 
     function unpause() external onlyOwner {

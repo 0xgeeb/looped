@@ -11,6 +11,7 @@ interface ILooped {
     error WeightsMismatch();
     error NotMatured();
     error NoMarketSet();
+    error UnsupportedUnderlying();
 
     event PositionLooped(address indexed adapter, uint256 ptCollateral, uint256 debt);
     event Delooped(address indexed adapter, uint256 assetsFreed);

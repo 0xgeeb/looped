@@ -10,6 +10,7 @@ import {MockLendingAdapter} from "./mocks/MockLendingAdapter.sol";
 import {MockPendleRouter} from "./mocks/MockPendleRouter.sol";
 import {MockPendleOracle} from "./mocks/MockPendleOracle.sol";
 import {MockPendleMarket} from "./mocks/MockPendleMarket.sol";
+import {MockPendleSy} from "./mocks/MockPendleSy.sol";
 
 contract LoopedTest is Test {
     Looped public vault;
@@ -20,6 +21,8 @@ contract LoopedTest is Test {
     MockPendleRouter public pendleRouter;
     MockPendleOracle public pendleOracle;
     MockPendleMarket public pendleMarket;
+    MockPendleSy public sy;
+    MockERC20 public yt;
 
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -30,10 +33,12 @@ contract LoopedTest is Test {
     function setUp() public {
         usdc = new MockERC20("USDC", "USDC", 6);
         pt = new MockERC20("PT-Token", "PT", 18);
+        yt = new MockERC20("YT-Token", "YT", 18);
+        sy = new MockPendleSy(address(usdc));
 
         pendleRouter = new MockPendleRouter();
         pendleOracle = new MockPendleOracle();
-        pendleMarket = new MockPendleMarket(address(pt), address(0), block.timestamp + 30 days);
+        pendleMarket = new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
 
         // Configure router: 1 USDC = 1e12 PT (1:1 value, adjusting for decimal diff)
         pendleRouter.configure(address(pt), address(usdc), 1e12);
@@ -334,7 +339,7 @@ contract LoopedTest is Test {
     function test_deployIdleSplitsAcrossAdapters() public {
         vault.addAdapter(address(adapter2));
 
-        MockPendleMarket market2 = new MockPendleMarket(address(pt), address(0), block.timestamp + 30 days);
+        MockPendleMarket market2 = new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
 
         ILendingAdapter[] memory a = new ILendingAdapter[](2);
         uint256[] memory w = new uint256[](2);
@@ -400,6 +405,21 @@ contract LoopedTest is Test {
         assertEq(vault.adapterPt(ILendingAdapter(address(adapter))), address(pt));
     }
 
+    function test_rollIntoRejectsUnsupportedUnderlying() public {
+        MockERC20 otherUnderlying = new MockERC20("Other USD", "oUSD", 18);
+        MockPendleSy otherSy = new MockPendleSy(address(otherUnderlying));
+        MockPendleMarket otherMarket = new MockPendleMarket(
+            address(otherSy),
+            address(pt),
+            address(yt),
+            block.timestamp + 30 days
+        );
+
+        vm.prank(strategist);
+        vm.expectRevert(ILooped.UnsupportedUnderlying.selector);
+        vault.rollInto(ILendingAdapter(address(adapter)), address(otherMarket));
+    }
+
     /*//////////////////////////////////////////////////////////////
                     MIGRATE TESTS
     //////////////////////////////////////////////////////////////*/
@@ -408,7 +428,7 @@ contract LoopedTest is Test {
         vault.addAdapter(address(adapter2));
 
         // Set up market2 for adapter2
-        MockPendleMarket market2 = new MockPendleMarket(address(pt), address(0), block.timestamp + 60 days);
+        MockPendleMarket market2 = new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 60 days);
 
         // Set adapter2 market first via rollInto after giving it some weight
         ILendingAdapter[] memory a = new ILendingAdapter[](2);

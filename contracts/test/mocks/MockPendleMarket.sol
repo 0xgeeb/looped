@@ -9,7 +9,8 @@ contract MockPendleMarket is IPendleMarket {
     address public yt_;
     uint256 public expiry_;
 
-    constructor(address pt, address yt, uint256 exp) {
+    constructor(address sy, address pt, address yt, uint256 exp) {
+        sy_ = sy;
         pt_ = pt;
         yt_ = yt;
         expiry_ = exp;
