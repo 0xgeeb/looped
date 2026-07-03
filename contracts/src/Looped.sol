@@ -134,7 +134,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
             // Value collateral in USDC via TWAP
             uint256 ptRate = pendleOracle.getPtToAssetRate(market, twapDuration);
-            uint256 colUsdc = ptCol * ptRate / 1e18 / 1e12;
+            uint256 colUsdc = _ptToAsset(ptCol, pt, ptRate);
 
             uint256 borrowAmt = (colUsdc * targetLtv / 10000) - dbt;
             if (borrowAmt == 0) break;
@@ -170,13 +170,13 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             // minColUsdc = dbt * 10000 / maxLtv, then convert to PT
             uint256 ptRate = pendleOracle.getPtToAssetRate(market, twapDuration);
             uint256 minColUsdc = maxLtv > 0 ? (dbt * 10000) / maxLtv : 0;
-            uint256 minColPt = minColUsdc * 1e12 * 1e18 / ptRate;
+            uint256 minColPt = _assetToPt(minColUsdc, pt, ptRate);
             uint256 maxWithdrawPt = ptCol > minColPt ? ptCol - minColPt : 0;
 
             if (maxWithdrawPt == 0) break;
 
             // Cap withdrawal to what we need (in PT terms)
-            uint256 neededPt = (neededUsdc - freed) * 1e12 * 1e18 / ptRate;
+            uint256 neededPt = _assetToPt(neededUsdc - freed, pt, ptRate);
             uint256 toWithdrawPt = maxWithdrawPt < neededPt ? maxWithdrawPt : neededPt;
 
             // Withdraw PT from lending protocol
@@ -208,7 +208,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             // Value total position in USDC
             uint256 ptCol = adapter.getCollateral(pt);
             uint256 ptRate = pendleOracle.getPtToAssetRate(adapterMarket[adapter], twapDuration);
-            uint256 colUsdc = ptCol * ptRate / 1e18 / 1e12;
+            uint256 colUsdc = _ptToAsset(ptCol, pt, ptRate);
             if (colUsdc > dbt) {
                 _deloop(colUsdc - dbt, adapter);
             }
@@ -292,6 +292,18 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         }
     }
 
+    function _ptToAsset(uint256 ptAmount, address pt, uint256 ptRate) internal view returns (uint256) {
+        uint8 ptDecimals = ERC20(pt).decimals();
+        uint8 assetDecimals = ERC20(usdc).decimals();
+        return ptAmount * ptRate * (10 ** assetDecimals) / 1e18 / (10 ** ptDecimals);
+    }
+
+    function _assetToPt(uint256 assetAmount, address pt, uint256 ptRate) internal view returns (uint256) {
+        uint8 ptDecimals = ERC20(pt).decimals();
+        uint8 assetDecimals = ERC20(usdc).decimals();
+        return assetAmount * 1e18 * (10 ** ptDecimals) / ptRate / (10 ** assetDecimals);
+    }
+
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                     ERC4626 OVERRIDES                      */
@@ -327,10 +339,8 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
             uint256 ptCol = adp.getCollateral(pt);
             if (ptCol > 0) {
-                // PT value in underlying asset terms (1e18 scaled rate)
                 uint256 ptRate = pendleOracle.getPtToAssetRate(market, twapDuration);
-                // PT is 18 decimals, USDC is 6 decimals: ptCol * rate / 1e18 gives 18-decimal value, / 1e12 for USDC
-                uint256 ptValueUsdc = ptCol * ptRate / 1e18 / 1e12;
+                uint256 ptValueUsdc = _ptToAsset(ptCol, pt, ptRate);
                 net += ptValueUsdc;
             }
             uint256 dbt = adp.getDebt(usdc);
@@ -361,7 +371,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
             // Value PT collateral in USDC terms
             uint256 ptRate = pendleOracle.getPtToAssetRate(adapterMarket[adp], twapDuration);
-            uint256 colUsdc = ptCol * ptRate / 1e18 / 1e12;
+            uint256 colUsdc = _ptToAsset(ptCol, pt, ptRate);
             if (colUsdc <= dbt) continue;
 
             uint256 available = colUsdc - dbt;
@@ -556,10 +566,10 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
                 address market = adapterMarket[adapter];
                 uint256 ptRate = pendleOracle.getPtToAssetRate(market, twapDuration);
 
-                uint256 colUsdc = ptCol * ptRate / 1e18 / 1e12;
+                uint256 colUsdc = _ptToAsset(ptCol, pt, ptRate);
                 uint256 minColUsdc = maxLtv > 0 ? (dbt * 10000) / maxLtv : 0;
                 uint256 maxWithdrawUsdc = colUsdc > minColUsdc ? colUsdc - minColUsdc : 0;
-                uint256 maxWithdrawPt = maxWithdrawUsdc * 1e12 * 1e18 / ptRate;
+                uint256 maxWithdrawPt = _assetToPt(maxWithdrawUsdc, pt, ptRate);
 
                 if (maxWithdrawPt == 0) break;
 
