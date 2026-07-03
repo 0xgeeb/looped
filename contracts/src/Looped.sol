@@ -189,11 +189,10 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             uint256 toWithdrawPt = maxWithdrawPt < neededPt ? maxWithdrawPt : neededPt;
 
             // Withdraw PT from lending protocol
-            uint256 balBefore = ERC20(usdc).balanceOf(address(this));
             try adapter.withdraw(pt, toWithdrawPt) {} catch { break; }
 
             // Swap PT → USDC
-            uint256 usdcReceived = _swapPtToUsdc(toWithdrawPt, market);
+            uint256 usdcReceived = _swapPtToUsdc(toWithdrawPt, adapter);
 
             if (dbt > 0) {
                 uint256 repayAmt = usdcReceived < dbt ? usdcReceived : dbt;
@@ -229,7 +228,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             // Swap remaining PT → USDC
             uint256 ptBal = ERC20(pt).balanceOf(address(this));
             if (ptBal > 0) {
-                _swapPtToUsdc(ptBal, adapterMarket[adapter]);
+                _swapPtToUsdc(ptBal, adapter);
             }
         }
     }
@@ -270,8 +269,11 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         );
     }
 
-    function _swapPtToUsdc(uint256 ptAmount, address market) internal returns (uint256 usdcOut) {
-        (,address pt,) = IPendleMarket(market).readTokens();
+    function _swapPtToUsdc(uint256 ptAmount, ILendingAdapter adapter) internal returns (uint256 usdcOut) {
+        address market = adapterMarket[adapter];
+        address pt = adapterPt[adapter];
+        address yt = adapterYt[adapter];
+        address tokenRedeemSy = adapterUnderlying[adapter];
         uint256 expiry = IPendleMarket(market).expiry();
 
         SafeTransferLib.safeApprove(pt, address(pendleRouter), ptAmount);
@@ -279,7 +281,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         IPendleRouter.TokenOutput memory output = IPendleRouter.TokenOutput({
             tokenOut: usdc,
             minTokenOut: 0,
-            tokenRedeemSy: usdc,
+            tokenRedeemSy: tokenRedeemSy,
             pendleSwap: address(0),
             swapData: IPendleRouter.SwapData({
                 swapType: IPendleRouter.SwapType.NONE,
@@ -290,8 +292,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         });
 
         if (block.timestamp >= expiry) {
-            // Matured — redeem directly
-            (,, address yt) = IPendleMarket(market).readTokens();
             usdcOut = pendleRouter.redeemPyToToken(address(this), yt, ptAmount, output);
         } else {
             // Not matured — sell on AMM
@@ -605,7 +605,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
                 uint256 ptBal = ERC20(pt).balanceOf(address(this));
                 if (ptBal == 0) break;
 
-                uint256 usdcReceived = _swapPtToUsdc(ptBal, adapterMarket[adapter]);
+                uint256 usdcReceived = _swapPtToUsdc(ptBal, adapter);
 
                 uint256 repayAmt = usdcReceived < dbt ? usdcReceived : dbt;
                 if (repayAmt > 0) {
@@ -622,7 +622,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
                 try adapter.withdraw(pt, remainingPt) {} catch {}
                 uint256 ptBal = ERC20(pt).balanceOf(address(this));
                 if (ptBal > 0) {
-                    _swapPtToUsdc(ptBal, adapterMarket[adapter]);
+                    _swapPtToUsdc(ptBal, adapter);
                 }
             }
         }

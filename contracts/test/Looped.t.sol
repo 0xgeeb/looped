@@ -386,6 +386,33 @@ contract LoopedTest is Test {
         assertEq(vault.adapterMarket(ILendingAdapter(address(adapter))), address(0), "market cleared");
     }
 
+    function test_rolloverUsesMarketUnderlyingForMaturedRedemption() public {
+        MockERC20 otherUnderlying = new MockERC20("Other USD", "oUSD", 18);
+        MockPendleSy otherSy = new MockPendleSy(address(otherUnderlying));
+        MockPendleMarket otherMarket = new MockPendleMarket(
+            address(otherSy),
+            address(pt),
+            address(yt),
+            block.timestamp + 30 days
+        );
+
+        vault.setSupportedUnderlying(address(otherUnderlying), true);
+
+        vm.prank(alice);
+        vault.deposit(1000e6, alice);
+
+        vm.prank(strategist);
+        vault.rollInto(ILendingAdapter(address(adapter)), address(otherMarket));
+
+        vm.warp(block.timestamp + 31 days);
+
+        vm.prank(strategist);
+        vault.rolloverToIdle(ILendingAdapter(address(adapter)));
+
+        assertEq(pendleRouter.lastTokenRedeemSy(), address(otherUnderlying), "redeems via market underlying");
+        assertEq(pendleRouter.lastTokenOut(), address(usdc), "outputs vault asset");
+    }
+
     function test_rolloverToIdleRevertsBeforeMaturity() public {
         _depositAndDeploy(1000e6);
 

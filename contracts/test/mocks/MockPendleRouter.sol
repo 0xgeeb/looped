@@ -13,6 +13,8 @@ contract MockPendleRouter is IPendleRouter {
 
     address public ptToken;
     address public usdcToken;
+    address public lastTokenRedeemSy;
+    address public lastTokenOut;
 
     function configure(address pt_, address usdc_, uint256 ptPerUsdc_) external {
         ptToken = pt_;
@@ -38,9 +40,11 @@ contract MockPendleRouter is IPendleRouter {
         address receiver,
         address,
         uint256 exactPtIn,
-        TokenOutput calldata,
+        TokenOutput calldata output,
         uint256
     ) external returns (uint256 netTokenOut, uint256 netSyFee) {
+        lastTokenRedeemSy = output.tokenRedeemSy;
+        lastTokenOut = output.tokenOut;
         MockERC20(ptToken).transferFrom(msg.sender, address(this), exactPtIn);
         // Convert PT (18 dec) to USDC (6 dec)
         netTokenOut = exactPtIn / ptPerUsdc;
@@ -52,8 +56,10 @@ contract MockPendleRouter is IPendleRouter {
         address receiver,
         address,
         uint256 netPyIn,
-        TokenOutput calldata
+        TokenOutput calldata output
     ) external returns (uint256 netTokenOut) {
+        lastTokenRedeemSy = output.tokenRedeemSy;
+        lastTokenOut = output.tokenOut;
         MockERC20(ptToken).transferFrom(msg.sender, address(this), netPyIn);
         // At maturity PT redeems 1:1 to underlying (adjusted for decimals)
         netTokenOut = netPyIn / 1e12;
