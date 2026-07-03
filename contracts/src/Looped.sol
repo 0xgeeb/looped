@@ -9,7 +9,7 @@ import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ILooped } from "./interfaces/ILooped.sol";
 import { ILendingAdapter } from "./interfaces/ILendingAdapter.sol";
-import { IPendleRouter , IPendleMarket} from "./interfaces/IPendleRouter.sol";
+import { IPendleRouter, IPendleMarket, IPendleSy } from "./interfaces/IPendleRouter.sol";
 import { IPendleOracle } from "./interfaces/IPendleOracle.sol";
 // state variables
 // constructor
@@ -64,6 +64,12 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     mapping(ILendingAdapter => address) public adapterMarket; // Pendle market
 
     mapping(ILendingAdapter => address) public adapterPt;     // PT token
+
+    mapping(ILendingAdapter => address) public adapterSy;     // SY token
+
+    mapping(ILendingAdapter => address) public adapterYt;     // YT token
+
+    mapping(ILendingAdapter => address) public adapterUnderlying; // SY yield token
 
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -304,6 +310,11 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         return assetAmount * 1e18 * (10 ** ptDecimals) / ptRate / (10 ** assetDecimals);
     }
 
+    function _readSyYieldToken(address sy) internal view returns (address) {
+        if (sy == address(0) || sy.code.length == 0) return address(0);
+        return IPendleSy(sy).yieldToken();
+    }
+
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                     ERC4626 OVERRIDES                      */
@@ -479,7 +490,10 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
         // Clear market mapping
         adapterMarket[adapter] = address(0);
+        adapterSy[adapter] = address(0);
         adapterPt[adapter] = address(0);
+        adapterYt[adapter] = address(0);
+        adapterUnderlying[adapter] = address(0);
 
         emit RolledOverToIdle(address(adapter), freed);
     }
@@ -491,10 +505,12 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     ) external onlyStrategist nonReentrant whenNotPaused {
         if (!isActiveAdapter[adapter]) revert AdapterNotRegistered();
 
-        // Set market for this adapter
-        (,address pt,) = IPendleMarket(pendleMarket).readTokens();
+        (address sy, address pt, address yt) = IPendleMarket(pendleMarket).readTokens();
         adapterMarket[adapter] = pendleMarket;
+        adapterSy[adapter] = sy;
         adapterPt[adapter] = pt;
+        adapterYt[adapter] = yt;
+        adapterUnderlying[adapter] = _readSyYieldToken(sy);
 
         emit AdapterMarketSet(address(adapter), pendleMarket, pt);
 
@@ -628,7 +644,10 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
         isActiveAdapter[a] = false;
         adapterMarket[a] = address(0);
+        adapterSy[a] = address(0);
         adapterPt[a] = address(0);
+        adapterYt[a] = address(0);
+        adapterUnderlying[a] = address(0);
 
         for (uint256 i = 0; i < adapters.length; i++) {
             if (address(adapters[i]) == _adapter) {
