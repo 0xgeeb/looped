@@ -145,8 +145,9 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             uint256 ptRate = pendleOracle.getPtToAssetRate(market, twapDuration);
             uint256 colUsdc = _ptToAsset(ptCol, pt, ptRate);
 
-            uint256 borrowAmt = (colUsdc * targetLtv / 10000) - dbt;
-            if (borrowAmt == 0) break;
+            uint256 targetDebt = colUsdc * targetLtv / 10000;
+            if (dbt >= targetDebt) break;
+            uint256 borrowAmt = targetDebt - dbt;
 
             // Borrow USDC
             adapter.borrow(usdc, borrowAmt);
@@ -363,7 +364,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
                 net += ptValueUsdc;
             }
             uint256 dbt = adp.getDebt(usdc);
-            net -= dbt;
+            net = dbt >= net ? 0 : net - dbt;
         }
         return net;
     }

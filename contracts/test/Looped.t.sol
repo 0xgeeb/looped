@@ -136,6 +136,25 @@ contract LoopedTest is Test {
         vault.deployIdle();
     }
 
+    function test_deployIdleDoesNotRevertWhenExistingDebtAboveTarget() public {
+        _depositAndDeploy(1000e6);
+
+        uint256 debtBefore = adapter.debt(address(usdc));
+        uint256 collateralBefore = adapter.collateral(address(pt));
+
+        // Existing debt is now above target LTV at the lower PT valuation.
+        pendleOracle.setRate(0.5e18);
+
+        vm.prank(bob);
+        vault.deposit(100e6, bob);
+
+        vm.prank(strategist);
+        vault.deployIdle();
+
+        assertEq(adapter.debt(address(usdc)), debtBefore, "should not borrow above target LTV");
+        assertGt(adapter.collateral(address(pt)), collateralBefore, "new idle deposit is supplied as PT");
+    }
+
     /*//////////////////////////////////////////////////////////////
                           WITHDRAWAL TESTS
     //////////////////////////////////////////////////////////////*/
