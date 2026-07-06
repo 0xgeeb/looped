@@ -145,6 +145,7 @@ contract LoopedTest is Test {
 
         // Existing debt is now above target LTV at the lower PT valuation.
         pendleOracle.setRate(0.5e18);
+        pendleRouter.configure(address(pt), address(usdc), 2e12);
 
         vm.prank(bob);
         vault.deposit(100e6, bob);
@@ -154,6 +155,17 @@ contract LoopedTest is Test {
 
         assertEq(adapter.debt(address(usdc)), debtBefore, "should not borrow above target LTV");
         assertGt(adapter.collateral(address(pt)), collateralBefore, "new idle deposit is supplied as PT");
+    }
+
+    function test_deployRevertsWhenPtOutBelowSlippage() public {
+        pendleRouter.configure(address(pt), address(usdc), 0.99e12);
+
+        vm.prank(alice);
+        vault.deposit(1000e6, alice);
+
+        vm.prank(strategist);
+        vm.expectRevert(bytes("slippage"));
+        vault.rollInto(ILendingAdapter(address(adapter)), address(pendleMarket));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -177,6 +189,16 @@ contract LoopedTest is Test {
         vault.withdraw(500e6, alice, alice);
 
         assertLt(adapter.collateral(address(pt)), 1000e18, "PT collateral reduced");
+    }
+
+    function test_withdrawRevertsWhenTokenOutBelowSlippage() public {
+        _depositAndDeploy(1000e6);
+
+        pendleRouter.configure(address(pt), address(usdc), 1.01e12);
+
+        vm.prank(alice);
+        vm.expectRevert(bytes("slippage"));
+        vault.withdraw(500e6, alice, alice);
     }
 
     function test_fullWithdraw() public {

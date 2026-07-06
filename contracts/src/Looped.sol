@@ -265,11 +265,13 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             eps: 1e15
         });
 
-        // Min PT out based on slippage tolerance
-        // Expected PT ≈ usdcAmount * 1e12 (decimal adjust) / ptRate (but PT trades at discount)
-        // Use 0 for minPtOut and rely on overall HF check
+        (, address pt,) = IPendleMarket(market).readTokens();
+        uint256 ptRate = pendleOracle.getPtToAssetRate(market, twapDuration);
+        uint256 expectedPtOut = _assetToPt(usdcAmount, pt, ptRate);
+        uint256 minPtOut = expectedPtOut * (10000 - maxSwapSlippageBps) / 10000;
+
         (ptOut,) = pendleRouter.swapExactTokenForPt(
-            address(this), market, 0, guess, input
+            address(this), market, minPtOut, guess, input
         );
     }
 
@@ -282,9 +284,13 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
         SafeTransferLib.safeApprove(pt, address(pendleRouter), ptAmount);
 
+        uint256 ptRate = pendleOracle.getPtToAssetRate(market, twapDuration);
+        uint256 expectedUsdcOut = _ptToAsset(ptAmount, pt, ptRate);
+        uint256 minTokenOut = expectedUsdcOut * (10000 - maxSwapSlippageBps) / 10000;
+
         IPendleRouter.TokenOutput memory output = IPendleRouter.TokenOutput({
             tokenOut: usdc,
-            minTokenOut: 0,
+            minTokenOut: minTokenOut,
             tokenRedeemSy: tokenRedeemSy,
             pendleSwap: address(0),
             swapData: IPendleRouter.SwapData({

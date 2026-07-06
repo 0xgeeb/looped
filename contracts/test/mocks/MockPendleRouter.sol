@@ -25,13 +25,14 @@ contract MockPendleRouter is IPendleRouter {
     function swapExactTokenForPt(
         address receiver,
         address,
-        uint256,
+        uint256 minPtOut,
         ApproxParams calldata,
         TokenInput calldata input
     ) external payable returns (uint256 netPtOut, uint256 netSyFee) {
-        MockERC20(input.tokenIn).transferFrom(msg.sender, address(this), input.netTokenIn);
         // Convert USDC (6 dec) to PT (18 dec)
         netPtOut = input.netTokenIn * ptPerUsdc;
+        require(netPtOut >= minPtOut, "slippage");
+        MockERC20(input.tokenIn).transferFrom(msg.sender, address(this), input.netTokenIn);
         MockERC20(ptToken).mint(receiver, netPtOut);
         netSyFee = 0;
     }
@@ -45,9 +46,10 @@ contract MockPendleRouter is IPendleRouter {
     ) external returns (uint256 netTokenOut, uint256 netSyFee) {
         lastTokenRedeemSy = output.tokenRedeemSy;
         lastTokenOut = output.tokenOut;
-        MockERC20(ptToken).transferFrom(msg.sender, address(this), exactPtIn);
         // Convert PT (18 dec) to USDC (6 dec)
         netTokenOut = exactPtIn / ptPerUsdc;
+        require(netTokenOut >= output.minTokenOut, "slippage");
+        MockERC20(ptToken).transferFrom(msg.sender, address(this), exactPtIn);
         MockERC20(usdcToken).mint(receiver, netTokenOut);
         netSyFee = 0;
     }
@@ -60,9 +62,10 @@ contract MockPendleRouter is IPendleRouter {
     ) external returns (uint256 netTokenOut) {
         lastTokenRedeemSy = output.tokenRedeemSy;
         lastTokenOut = output.tokenOut;
-        MockERC20(ptToken).transferFrom(msg.sender, address(this), netPyIn);
         // At maturity PT redeems 1:1 to underlying (adjusted for decimals)
         netTokenOut = netPyIn / 1e12;
+        require(netTokenOut >= output.minTokenOut, "slippage");
+        MockERC20(ptToken).transferFrom(msg.sender, address(this), netPyIn);
         MockERC20(usdcToken).mint(receiver, netTokenOut);
     }
 }
