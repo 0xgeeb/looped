@@ -326,6 +326,32 @@ contract LoopedTest is Test {
         vault.rebalance();
     }
 
+    function test_rebalanceMovesCapitalToNewWeights() public {
+        vault.addAdapter(address(adapter2));
+        MockPendleMarket market2 = new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
+
+        _depositAndDeploy(1000e6);
+
+        vm.prank(strategist);
+        vault.rollInto(ILendingAdapter(address(adapter2)), address(market2));
+
+        ILendingAdapter[] memory a = new ILendingAdapter[](2);
+        uint256[] memory w = new uint256[](2);
+        a[0] = ILendingAdapter(address(adapter));
+        a[1] = ILendingAdapter(address(adapter2));
+        w[0] = 0;
+        w[1] = 10000;
+        vault.setAdapterWeights(a, w);
+
+        vm.prank(strategist);
+        vault.rebalance();
+
+        assertEq(adapter.collateral(address(pt)), 0, "old target adapter empty");
+        assertEq(adapter.debt(address(usdc)), 0, "old target adapter debt repaid");
+        assertGt(adapter2.collateral(address(pt)), 0, "new target adapter deployed");
+        assertGt(adapter2.debt(address(usdc)), 0, "new target adapter looped");
+    }
+
     /*//////////////////////////////////////////////////////////////
                      MULTI-ADAPTER TESTS
     //////////////////////////////////////////////////////////////*/

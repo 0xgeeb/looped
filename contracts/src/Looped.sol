@@ -491,7 +491,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     function rebalance() external onlyStrategist nonReentrant whenNotPaused {
         for (uint256 i = 0; i < adapters.length; i++) {
             ILendingAdapter adp = adapters[i];
-            if (adapterWeightBps[adp] == 0) continue;
             address pt = adapterPt[adp];
             if (pt == address(0)) continue;
             if (adp.getCollateral(pt) == 0 && adp.getDebt(usdc) == 0) continue;
