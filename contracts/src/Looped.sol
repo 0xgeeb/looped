@@ -536,6 +536,11 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         address underlying = _readSyYieldToken(sy);
         _validateMarketMetadata(sy, pt, yt, underlying);
 
+        address oldPt = adapterPt[adapter];
+        if (oldPt != address(0) && (adapter.getCollateral(oldPt) > 0 || adapter.getDebt(usdc) > 0)) {
+            _deloopAll(adapter);
+        }
+
         adapterMarket[adapter] = pendleMarket;
         adapterSy[adapter] = sy;
         adapterPt[adapter] = pt;

@@ -463,6 +463,20 @@ contract LoopedTest is Test {
         assertEq(vault.adapterPt(ILendingAdapter(address(adapter))), address(pt));
     }
 
+    function test_rollIntoNewMarketBeforeMaturityRerollsPosition() public {
+        _depositAndDeploy(1000e6);
+
+        MockPendleMarket market2 = new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 60 days);
+
+        vm.prank(strategist);
+        vault.rollInto(ILendingAdapter(address(adapter)), address(market2));
+
+        assertEq(vault.adapterMarket(ILendingAdapter(address(adapter))), address(market2), "market updated");
+        assertEq(pendleRouter.lastTokenOut(), address(usdc), "old PT sold before reroll");
+        assertGt(adapter.collateral(address(pt)), 0, "new position deployed");
+        assertGt(adapter.debt(address(usdc)), 0, "new position looped");
+    }
+
     function test_rollIntoRejectsUnsupportedUnderlying() public {
         MockERC20 otherUnderlying = new MockERC20("Other USD", "oUSD", 18);
         MockPendleSy otherSy = new MockPendleSy(address(otherUnderlying));
