@@ -45,6 +45,8 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
     uint256 public withdrawalFeeBps; // e.g. 5 = 0.05%
 
+    address public feeRecipient;
+
     uint256 public maxSwapSlippageBps; // e.g. 50 = 0.5%
 
     bool public paused;
@@ -113,6 +115,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         minHealthFactor = minHealthFactor_;
         targetBuffer = 500; // 5% default
         withdrawalFeeBps = 5; // 0.05% default
+        feeRecipient = msg.sender;
         maxSwapSlippageBps = 50; // 0.5% default
         isSupportedUnderlying[asset_] = true;
         _initializeOwner(msg.sender);
@@ -413,6 +416,21 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     function previewRedeem(uint256 shares) public view override returns (uint256 assets) {
         uint256 grossAssets = super.previewRedeem(shares);
         assets = grossAssets - (grossAssets * withdrawalFeeBps / 10000);
+    }
+
+    function _withdraw(address by, address to, address owner, uint256 assets, uint256 shares) internal override {
+        if (by != owner) _spendAllowance(owner, by, shares);
+
+        uint256 grossAssets = super.previewRedeem(shares);
+        uint256 fee = grossAssets > assets ? grossAssets - assets : 0;
+
+        _beforeWithdraw(grossAssets, shares);
+        _burn(owner, shares);
+
+        if (fee > 0) SafeTransferLib.safeTransfer(asset(), feeRecipient, fee);
+        SafeTransferLib.safeTransfer(asset(), to, assets);
+
+        emit Withdraw(by, to, owner, assets, shares);
     }
 
 
@@ -725,6 +743,12 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     function setWithdrawalFeeBps(uint256 _withdrawalFeeBps) external onlyOwner {
         if (_withdrawalFeeBps > 100) revert InvalidParams();
         withdrawalFeeBps = _withdrawalFeeBps;
+    }
+
+    function setFeeRecipient(address _feeRecipient) external onlyOwner {
+        if (_feeRecipient == address(0)) revert InvalidParams();
+        feeRecipient = _feeRecipient;
+        emit FeeRecipientUpdated(_feeRecipient);
     }
 
     function setMaxSwapSlippageBps(uint256 _maxSwapSlippageBps) external onlyOwner {

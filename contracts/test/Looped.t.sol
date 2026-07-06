@@ -26,6 +26,7 @@ contract LoopedTest is Test {
 
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
+    address feeRecipient = makeAddr("feeRecipient");
     address strategist = makeAddr("strategist");
 
     uint256 constant INITIAL_BALANCE = 100_000e6; // USDC has 6 decimals
@@ -195,19 +196,25 @@ contract LoopedTest is Test {
                         WITHDRAWAL FEE TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function test_withdrawalFeeAccruesToHolders() public {
+    function test_withdrawalFeeGoesToRecipient() public {
+        vault.setFeeRecipient(feeRecipient);
+
         vm.prank(alice);
         vault.deposit(1000e6, alice);
 
         vm.prank(bob);
         vault.deposit(1000e6, bob);
 
+        uint256 feeBefore = usdc.balanceOf(feeRecipient);
         uint256 aliceShares = vault.balanceOf(alice);
         vm.prank(alice);
         vault.redeem(aliceShares, alice, alice);
 
+        uint256 expectedFee = 1000e6 * vault.withdrawalFeeBps() / 10000;
+        assertEq(usdc.balanceOf(feeRecipient) - feeBefore, expectedFee, "recipient gets fee");
+
         uint256 bobAssets = vault.previewRedeem(vault.balanceOf(bob));
-        assertGt(bobAssets, 999e6, "bob benefits from fee");
+        assertApproxEqAbs(bobAssets, 999_500_000, 1, "bob does not receive alice fee");
     }
 
     function test_zeroFeeWhenDisabled() public {
@@ -221,6 +228,11 @@ contract LoopedTest is Test {
         vault.redeem(shares, alice, alice);
 
         assertEq(usdc.balanceOf(alice), INITIAL_BALANCE, "no fee");
+    }
+
+    function test_cannotSetZeroFeeRecipient() public {
+        vm.expectRevert(ILooped.InvalidParams.selector);
+        vault.setFeeRecipient(address(0));
     }
 
     /*//////////////////////////////////////////////////////////////

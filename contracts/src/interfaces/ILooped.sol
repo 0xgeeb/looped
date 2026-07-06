@@ -18,6 +18,7 @@ interface ILooped {
     event Rebalanced();
     event EmergencyDeleveraged();
     event StrategistUpdated(address indexed newStrategist);
+    event FeeRecipientUpdated(address indexed newFeeRecipient);
     event AdapterAdded(address indexed adapter);
     event AdapterRemoved(address indexed adapter);
     event AdapterMigrated(address indexed from, address indexed to);
