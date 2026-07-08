@@ -8,10 +8,11 @@ import {
   formatUnits,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { arbitrum } from "viem/chains";
+import { mainnet } from "viem/chains";
 import { config } from "./config.js";
 
 const USDC_DECIMALS = 6;
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 // Minimal ABIs
 const vaultAbi = parseAbi([
@@ -19,19 +20,19 @@ const vaultAbi = parseAbi([
   "function targetBuffer() view returns (uint256)",
   "function minHealthFactor() view returns (uint256)",
   "function paused() view returns (bool)",
-  "function getAdapters() view returns (address[])",
-  "function adapterWeightBps(address) view returns (uint256)",
-  "function adapterMarket(address) view returns (address)",
+  "function getStrategyIds() view returns (uint256[])",
+  "function strategies(uint256) view returns (bool active, uint16 weightBps, uint16 targetLtvBps, uint8 targetLoops, uint8 venue, address lendingMarket, address pendleMarket, address sy, address pt, address yt, address underlying)",
+  "function getStrategyPosition(uint256 strategyId) view returns (uint256 collateral, uint256 debt, uint256 weightBps)",
+  "function lendingRouter() view returns (address)",
   "function asset() view returns (address)",
   "function strategist() view returns (address)",
   "function deployIdle()",
   "function rebalance()",
-  "function rolloverToIdle(address adapter)",
+  "function rolloverToIdle(uint256 strategyId)",
 ]);
 
-const adapterAbi = parseAbi([
-  "function getHealthFactor() view returns (uint256)",
-  "function getDebt(address asset) view returns (uint256)",
+const lendingRouterAbi = parseAbi([
+  "function getHealthFactor(uint256 strategyId, uint8 venue, address lendingMarket) view returns (uint256)",
 ]);
 
 const erc20Abi = parseAbi([
@@ -46,13 +47,13 @@ const account = privateKeyToAccount(config.privateKey);
 const vault = config.vaultAddress;
 
 const publicClient = createPublicClient({
-  chain: arbitrum,
+  chain: mainnet,
   transport: http(config.rpcUrl),
 });
 
 const walletClient = createWalletClient({
   account,
-  chain: arbitrum,
+  chain: mainnet,
   transport: http(config.rpcUrl),
 });
 
@@ -81,6 +82,14 @@ type KeeperStatus = {
   jobs: Record<JobName, KeeperJobStatus>;
 };
 
+type Strategy = {
+  id: bigint;
+  weightBps: bigint;
+  venue: number;
+  lendingMarket: Address;
+  pendleMarket: Address;
+};
+
 const emptyJobStatus = (): KeeperJobStatus => ({
   lastStartedAt: null,
   lastSucceededAt: null,
@@ -93,7 +102,7 @@ const keeperStatus: KeeperStatus = {
   dryRun: config.dryRun,
   vaultAddress: vault,
   keeperAddress: account.address,
-  chainId: arbitrum.id,
+  chainId: mainnet.id,
   startedAt: null,
   stoppedAt: null,
   lastSuccessfulJob: null,
@@ -111,6 +120,9 @@ const formatError = (err: unknown) => {
   if (typeof err === "string") return err;
   return JSON.stringify(err);
 };
+
+const toNumber = (value: number | bigint) =>
+  typeof value === "bigint" ? Number(value) : value;
 
 const markJobStarted = (name: JobName) => {
   keeperStatus.jobs[name].lastStartedAt = new Date().toISOString();
@@ -149,25 +161,48 @@ const readVault = (functionName: any, args?: any[]) =>
   });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const readAdapter = (adapterAddr: Address, functionName: any, args?: any[]) =>
+const readLendingRouter = (router: Address, functionName: any, args?: any[]) =>
   publicClient.readContract({
-    address: adapterAddr,
-    abi: adapterAbi,
+    address: router,
+    abi: lendingRouterAbi,
     functionName,
     args: args as any, // eslint-disable-line @typescript-eslint/no-explicit-any
   });
 
 // ─── Helpers ────────────────────────────────────────────────
 
-const getActiveAdapters = async (): Promise<{ address: Address; weight: bigint }[]> => {
-  const allAdapters = await readVault("getAdapters") as Address[];
-  const results: { address: Address; weight: bigint }[] = [];
-  for (const addr of allAdapters) {
-    const weight = await readVault("adapterWeightBps", [addr]) as bigint;
-    if (weight > 0n) {
-      results.push({ address: addr, weight });
+const getActiveStrategies = async (): Promise<Strategy[]> => {
+  const strategyIds = await readVault("getStrategyIds") as bigint[];
+  const results: Strategy[] = [];
+
+  for (const id of strategyIds) {
+    const strategy = await readVault("strategies", [id]) as unknown as readonly [
+      boolean,
+      number | bigint,
+      number | bigint,
+      number | bigint,
+      number | bigint,
+      Address,
+      Address,
+      Address,
+      Address,
+      Address,
+      Address,
+    ];
+    const [active, weightBps, , , venue, lendingMarket, pendleMarket] = strategy;
+    const normalizedWeightBps = toNumber(weightBps);
+
+    if (active && normalizedWeightBps > 0) {
+      results.push({
+        id,
+        weightBps: BigInt(normalizedWeightBps),
+        venue: toNumber(venue),
+        lendingMarket,
+        pendleMarket,
+      });
     }
   }
+
   return results;
 };
 
@@ -179,7 +214,7 @@ const callDeployIdle = async () => {
     }
 
     const hash = await walletClient.writeContract({
-      chain: arbitrum,
+      chain: mainnet,
       address: vault,
       abi: vaultAbi,
       functionName: "deployIdle",
@@ -199,7 +234,7 @@ const callRebalance = async () => {
     }
 
     const hash = await walletClient.writeContract({
-      chain: arbitrum,
+      chain: mainnet,
       address: vault,
       abi: vaultAbi,
       functionName: "rebalance",
@@ -211,23 +246,23 @@ const callRebalance = async () => {
   }
 };
 
-const callRolloverToIdle = async (adapterAddr: Address) => {
+const callRolloverToIdle = async (strategyId: bigint) => {
   try {
     if (config.dryRun) {
-      console.log(`[keeper:rollover] dry run: would call rolloverToIdle(${adapterAddr})`);
+      console.log(`[keeper:rollover] dry run: would call rolloverToIdle(${strategyId})`);
       return;
     }
 
     const hash = await walletClient.writeContract({
-      chain: arbitrum,
+      chain: mainnet,
       address: vault,
       abi: vaultAbi,
       functionName: "rolloverToIdle",
-      args: [adapterAddr],
+      args: [strategyId],
     });
     await waitForHash("rollover", hash);
   } catch (err) {
-    console.error(`[keeper:rollover] failed for ${adapterAddr}:`, err);
+    console.error(`[keeper:rollover] failed for strategy ${strategyId}:`, err);
     throw err;
   }
 };
@@ -271,61 +306,63 @@ const checkHealthFactor = async () => {
     return;
   }
 
-  const adapters = await getActiveAdapters();
+  const strategies = await getActiveStrategies();
   const minHF = await readVault("minHealthFactor") as bigint;
-  const asset = await readVault("asset") as Address;
+  const lendingRouter = await readVault("lendingRouter") as Address;
 
-  for (const { address: adapterAddr, weight } of adapters) {
+  for (const strategy of strategies) {
     try {
-      const debt = await readAdapter(adapterAddr, "getDebt", [asset]) as bigint;
+      const [, debt] = await readVault("getStrategyPosition", [strategy.id]) as readonly [bigint, bigint, bigint];
       if (debt === 0n) continue;
 
-      const hf = await readAdapter(adapterAddr, "getHealthFactor") as bigint;
+      const hf = await readLendingRouter(lendingRouter, "getHealthFactor", [
+        strategy.id,
+        strategy.venue,
+        strategy.lendingMarket,
+      ]) as bigint;
       console.log(
-        `[keeper:health] adapter ${adapterAddr} (${weight} bps) HF: ${formatUnits(hf, 18)} | minimum: ${formatUnits(minHF, 18)}`
+        `[keeper:health] strategy ${strategy.id} (${strategy.weightBps} bps) HF: ${formatUnits(hf, 18)} | minimum: ${formatUnits(minHF, 18)}`
       );
 
       if (hf < minHF) {
-        console.log(`[keeper:health] adapter ${adapterAddr} HF below minimum, calling rebalance`);
+        console.log(`[keeper:health] strategy ${strategy.id} HF below minimum, calling rebalance`);
         await callRebalance();
         return;
       }
     } catch {
-      console.log(`[keeper:health] adapter ${adapterAddr} health check failed, skipping`);
+      console.log(`[keeper:health] strategy ${strategy.id} health check failed, skipping`);
     }
   }
 };
 
-const checkMaturedAdapters = async () => {
+const checkMaturedStrategies = async () => {
   const paused = await readVault("paused");
   if (paused) return;
 
-  const allAdapters = await readVault("getAdapters") as Address[];
-
-  for (const addr of allAdapters) {
+  const strategies = await getActiveStrategies();
+  for (const strategy of strategies) {
     try {
-      const market = await readVault("adapterMarket", [addr]) as Address;
-      if (market === "0x0000000000000000000000000000000000000000") continue;
+      if (strategy.pendleMarket === ZERO_ADDRESS) continue;
 
       const expiry = await publicClient.readContract({
-        address: market,
+        address: strategy.pendleMarket,
         abi: pendleMarketAbi,
         functionName: "expiry",
       });
 
       const now = BigInt(Math.floor(Date.now() / 1000));
       if (expiry <= now) {
-        console.log(`[keeper:rollover] adapter ${addr} matured (expiry: ${expiry}), rolling over to idle`);
-        await callRolloverToIdle(addr);
+        console.log(`[keeper:rollover] strategy ${strategy.id} matured (expiry: ${expiry}), rolling over to idle`);
+        await callRolloverToIdle(strategy.id);
       }
     } catch {
-      console.log(`[keeper:rollover] adapter ${addr} expiry check failed, skipping`);
+      console.log(`[keeper:rollover] strategy ${strategy.id} expiry check failed, skipping`);
     }
   }
 };
 
 const checkRateOptimization = async () => {
-  console.log("[keeper:rates] skipped: current contract does not expose adapter rate metrics");
+  console.log("[keeper:rates] skipped: current contract does not expose strategy rate metrics");
 };
 
 // ─── Scheduling ──────────────────────────────────────────────
@@ -362,7 +399,7 @@ export const startKeeper = () => {
 
   schedule("healthCheck", checkHealthFactor, config.healthCheckInterval);
   schedule("deployIdle", checkAndDeployIdle, config.deployIdleInterval);
-  schedule("rollover", checkMaturedAdapters, config.deployIdleInterval);
+  schedule("rollover", checkMaturedStrategies, config.deployIdleInterval);
 
   schedule("rateOptimize", checkRateOptimization, config.rateCheckInterval);
 };
