@@ -1,7 +1,10 @@
-forge coverage --mc "Unit|Fuzz|Diff|Integration" --report lcov --ffi
+#!/usr/bin/env bash
+set -euo pipefail
 
-lcov --remove lcov.info -o lcov.info 'script/*' 'src/mock/*' 'test/*' --rc lcov_branch_coverage=1
+forge coverage --no-match-contract "LoopedMainnetForkPlaygroundTest" --report lcov --ffi --ir-minimum
+
+lcov --remove lcov.info -o lcov.info 'scripts/*' 'test/*' --rc lcov_branch_coverage=1
 
 genhtml lcov.info -o ./coverage --branch-coverage
 
-rm lcov.info
+rm -f lcov.info
