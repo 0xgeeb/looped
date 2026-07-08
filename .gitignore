@@ -8,3 +8,4 @@ out/
 /.claude
 CLAUDE.md
 TODO.md
+/contracts/coverage/
