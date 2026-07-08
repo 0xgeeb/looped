@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Looped} from "../src/Looped.sol";
 import {ILendingAdapter} from "../src/interfaces/ILendingAdapter.sol";
 import {ILooped} from "../src/interfaces/ILooped.sol";
+import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockLendingAdapter} from "./mocks/MockLendingAdapter.sol";
 import {MockPendleRouter} from "./mocks/MockPendleRouter.sol";
@@ -691,5 +692,82 @@ contract LoopedTest is Test {
         assertGt(col, 0, "collateral > 0");
         assertGt(dbt, 0, "debt > 0");
         assertEq(weightBps, 10000, "weight 100%");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        STRATEGY ID CONFIG
+    //////////////////////////////////////////////////////////////*/
+
+    function test_addStrategyStoresTargetShape() public {
+        uint256 strategyId =
+            vault.addStrategy(10000, 7000, 3, LendingVenue.Aave, address(adapter), address(pendleMarket));
+
+        (
+            bool active,
+            uint16 weightBps,
+            uint16 targetLtvBps,
+            uint8 strategyLoops,
+            LendingVenue venue,
+            address lendingMarket,
+            address market,
+            address strategySy,
+            address strategyPt,
+            address strategyYt,
+            address underlying
+        ) = vault.strategies(strategyId);
+
+        assertTrue(active, "active");
+        assertEq(weightBps, 10000, "weight");
+        assertEq(targetLtvBps, 7000, "ltv");
+        assertEq(strategyLoops, 3, "loops");
+        assertEq(uint256(venue), uint256(LendingVenue.Aave), "venue");
+        assertEq(lendingMarket, address(adapter), "lending market");
+        assertEq(market, address(pendleMarket), "pendle market");
+        assertEq(strategySy, address(sy), "sy");
+        assertEq(strategyPt, address(pt), "pt");
+        assertEq(strategyYt, address(yt), "yt");
+        assertEq(underlying, address(usdc), "underlying");
+        assertTrue(vault.isRegisteredStrategy(strategyId), "registered");
+    }
+
+    function test_updateStrategy() public {
+        uint256 strategyId =
+            vault.addStrategy(10000, 7000, 3, LendingVenue.Aave, address(adapter), address(pendleMarket));
+
+        vault.updateStrategy(strategyId, false, 5000, 6500, 2, LendingVenue.Morpho, address(adapter2));
+
+        (
+            bool active,
+            uint16 weightBps,
+            uint16 targetLtvBps,
+            uint8 strategyLoops,
+            LendingVenue venue,
+            address lendingMarket,,,,,
+        ) = vault.strategies(strategyId);
+
+        assertFalse(active, "inactive");
+        assertEq(weightBps, 5000, "weight");
+        assertEq(targetLtvBps, 6500, "ltv");
+        assertEq(strategyLoops, 2, "loops");
+        assertEq(uint256(venue), uint256(LendingVenue.Morpho), "venue");
+        assertEq(lendingMarket, address(adapter2), "lending market");
+    }
+
+    function test_removeStrategyRequiresZeroWeight() public {
+        uint256 strategyId =
+            vault.addStrategy(10000, 7000, 3, LendingVenue.Aave, address(adapter), address(pendleMarket));
+
+        vm.expectRevert(ILooped.InvalidParams.selector);
+        vault.removeStrategy(strategyId);
+
+        vault.updateStrategy(strategyId, false, 0, 7000, 3, LendingVenue.Aave, address(adapter));
+        vault.removeStrategy(strategyId);
+
+        assertFalse(vault.isRegisteredStrategy(strategyId), "unregistered");
+    }
+
+    function test_setLendingRouter() public {
+        vault.setLendingRouter(address(adapter));
+        assertEq(address(vault.lendingRouter()), address(adapter));
     }
 }

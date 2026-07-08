@@ -8,6 +8,8 @@ interface ILooped {
     error InvalidParams();
     error AdapterNotRegistered();
     error AdapterAlreadyRegistered();
+    error StrategyNotRegistered();
+    error StrategyAlreadyRegistered();
     error WeightsMismatch();
     error NotMatured();
     error NoMarketSet();
@@ -22,6 +24,10 @@ interface ILooped {
     event AdapterAdded(address indexed adapter);
     event AdapterRemoved(address indexed adapter);
     event AdapterMigrated(address indexed from, address indexed to);
+    event StrategyAdded(uint256 indexed strategyId, address indexed lendingMarket, address indexed pendleMarket);
+    event StrategyUpdated(uint256 indexed strategyId, bool active, uint16 weightBps);
+    event StrategyRemoved(uint256 indexed strategyId);
+    event LendingRouterUpdated(address indexed newRouter);
     event IdleDeployed(uint256 amount);
     event WeightsUpdated();
     event RolledOverToIdle(address indexed adapter, uint256 amount);

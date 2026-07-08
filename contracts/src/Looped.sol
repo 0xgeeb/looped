@@ -9,6 +9,7 @@ import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 import { ILooped } from "./interfaces/ILooped.sol";
 import { ILendingAdapter } from "./interfaces/ILendingAdapter.sol";
+import { ILendingRouter, LendingVenue } from "./interfaces/ILendingRouter.sol";
 import { IPendleRouter, IPendleMarket, IPendleSy } from "./interfaces/IPendleRouter.sol";
 import { IPendleOracle } from "./interfaces/IPendleOracle.sol";
 // state variables
@@ -23,6 +24,20 @@ import { IPendleOracle } from "./interfaces/IPendleOracle.sol";
 /// @title Looped
 /// @author geeb
 contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
+
+    struct Strategy {
+        bool active;
+        uint16 weightBps;
+        uint16 targetLtvBps;
+        uint8 targetLoops;
+        LendingVenue venue;
+        address lendingMarket;
+        address pendleMarket;
+        address sy;
+        address pt;
+        address yt;
+        address underlying;
+    }
 
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -55,6 +70,8 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
     IPendleOracle public pendleOracle;
 
+    ILendingRouter public lendingRouter;
+
     uint32 public twapDuration;
 
     ILendingAdapter[] public adapters;
@@ -74,6 +91,10 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     mapping(ILendingAdapter => address) public adapterUnderlying; // SY yield token
 
     mapping(address => bool) public isSupportedUnderlying;
+
+    Strategy[] public strategies;
+
+    mapping(uint256 => bool) public isRegisteredStrategy;
 
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -331,6 +352,10 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     function _validateMarketMetadata(address sy, address pt, address yt, address underlying) internal view {
         if (sy == address(0) || pt == address(0) || yt == address(0)) revert InvalidParams();
         if (underlying == address(0) || !isSupportedUnderlying[underlying]) revert UnsupportedUnderlying();
+    }
+
+    function _validateStrategyId(uint256 strategyId) internal view {
+        if (strategyId >= strategies.length || !isRegisteredStrategy[strategyId]) revert StrategyNotRegistered();
     }
 
 
@@ -721,6 +746,86 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         emit WeightsUpdated();
     }
 
+    function addStrategy(
+        uint16 weightBps,
+        uint16 targetLtvBps,
+        uint8 targetLoops_,
+        LendingVenue venue,
+        address lendingMarket,
+        address pendleMarket
+    ) external onlyOwner returns (uint256 strategyId) {
+        if (weightBps > 10000 || targetLtvBps > 10000 || lendingMarket == address(0)) revert InvalidParams();
+
+        (address sy, address pt, address yt) = IPendleMarket(pendleMarket).readTokens();
+        address underlying = _readSyYieldToken(sy);
+        _validateMarketMetadata(sy, pt, yt, underlying);
+
+        strategyId = strategies.length;
+        strategies.push(
+            Strategy({
+                active: true,
+                weightBps: weightBps,
+                targetLtvBps: targetLtvBps,
+                targetLoops: targetLoops_,
+                venue: venue,
+                lendingMarket: lendingMarket,
+                pendleMarket: pendleMarket,
+                sy: sy,
+                pt: pt,
+                yt: yt,
+                underlying: underlying
+            })
+        );
+        isRegisteredStrategy[strategyId] = true;
+
+        emit StrategyAdded(strategyId, lendingMarket, pendleMarket);
+    }
+
+    function updateStrategy(
+        uint256 strategyId,
+        bool active,
+        uint16 weightBps,
+        uint16 targetLtvBps,
+        uint8 targetLoops_,
+        LendingVenue venue,
+        address lendingMarket
+    ) external onlyOwner {
+        _validateStrategyId(strategyId);
+        if (weightBps > 10000 || targetLtvBps > 10000 || lendingMarket == address(0)) revert InvalidParams();
+
+        Strategy storage strategy = strategies[strategyId];
+        strategy.active = active;
+        strategy.weightBps = weightBps;
+        strategy.targetLtvBps = targetLtvBps;
+        strategy.targetLoops = targetLoops_;
+        strategy.venue = venue;
+        strategy.lendingMarket = lendingMarket;
+
+        emit StrategyUpdated(strategyId, active, weightBps);
+    }
+
+    function removeStrategy(uint256 strategyId) external onlyOwner {
+        _validateStrategyId(strategyId);
+        Strategy storage strategy = strategies[strategyId];
+        if (strategy.weightBps > 0) revert InvalidParams();
+        isRegisteredStrategy[strategyId] = false;
+        strategy.active = false;
+        strategy.pendleMarket = address(0);
+        strategy.sy = address(0);
+        strategy.pt = address(0);
+        strategy.yt = address(0);
+        strategy.underlying = address(0);
+
+        emit StrategyRemoved(strategyId);
+    }
+
+    function getStrategyIds() external view returns (uint256[] memory ids) {
+        ids = new uint256[](strategies.length);
+        for (uint256 i = 0; i < strategies.length; i++) {
+            ids[i] = i;
+        }
+    }
+
     function getAdapters() external view returns (ILendingAdapter[] memory) {
         return adapters;
     }
@@ -743,6 +848,12 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     function setStrategist(address _strategist) external onlyOwner {
         strategist = _strategist;
         emit StrategistUpdated(_strategist);
+    }
+
+    function setLendingRouter(address _lendingRouter) external onlyOwner {
+        if (_lendingRouter == address(0)) revert InvalidParams();
+        lendingRouter = ILendingRouter(_lendingRouter);
+        emit LendingRouterUpdated(_lendingRouter);
     }
 
     function setTargetBuffer(uint256 _targetBuffer) external onlyOwner {
