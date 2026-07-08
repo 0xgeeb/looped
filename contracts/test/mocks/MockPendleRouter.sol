@@ -37,13 +37,10 @@ contract MockPendleRouter is IPendleRouter {
         netSyFee = 0;
     }
 
-    function swapExactPtForToken(
-        address receiver,
-        address,
-        uint256 exactPtIn,
-        TokenOutput calldata output,
-        uint256
-    ) external returns (uint256 netTokenOut, uint256 netSyFee) {
+    function swapExactPtForToken(address receiver, address, uint256 exactPtIn, TokenOutput calldata output, uint256)
+        external
+        returns (uint256 netTokenOut, uint256 netSyFee)
+    {
         lastTokenRedeemSy = output.tokenRedeemSy;
         lastTokenOut = output.tokenOut;
         // Convert PT (18 dec) to USDC (6 dec)
@@ -54,12 +51,10 @@ contract MockPendleRouter is IPendleRouter {
         netSyFee = 0;
     }
 
-    function redeemPyToToken(
-        address receiver,
-        address,
-        uint256 netPyIn,
-        TokenOutput calldata output
-    ) external returns (uint256 netTokenOut) {
+    function redeemPyToToken(address receiver, address, uint256 netPyIn, TokenOutput calldata output)
+        external
+        returns (uint256 netTokenOut)
+    {
         lastTokenRedeemSy = output.tokenRedeemSy;
         lastTokenOut = output.tokenOut;
         // At maturity PT redeems 1:1 to underlying (adjusted for decimals)

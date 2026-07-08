@@ -3,8 +3,8 @@ pragma solidity ^0.8.34;
 
 import {Script, console} from "forge-std/Script.sol";
 import {Looped} from "../src/Looped.sol";
-import {AaveLendingAdapter} from "../src/adapters/AaveLendingAdapter.sol";
-import {ILendingAdapter} from "../src/interfaces/ILendingAdapter.sol";
+import {LendingRouter} from "../src/LendingRouter.sol";
+import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
 
 contract Deploy is Script {
     // ─── Arbitrum Mainnet Addresses ────────────────────────────
@@ -22,29 +22,20 @@ contract Deploy is Script {
             USDC,
             PENDLE_ROUTER,
             PENDLE_ORACLE,
-            900,          // 15 min TWAP
-            3,            // target loops
-            7000,         // 70% LTV
-            1.15e18       // min health factor
+            900, // 15 min TWAP
+            3, // target loops
+            7000, // 70% LTV
+            1.15e18 // min health factor
         );
         console.log("Looped vault:", address(vault));
 
-        // 2. Deploy Aave adapter
-        AaveLendingAdapter adapter = new AaveLendingAdapter(
-            address(vault),
-            AAVE_POOL,
-            AAVE_DATA_PROVIDER
-        );
-        console.log("AaveLendingAdapter:", address(adapter));
+        // 2. Deploy lending router and point vault at it
+        LendingRouter lendingRouter = new LendingRouter(address(vault), AAVE_DATA_PROVIDER, address(0));
+        vault.setLendingRouter(address(lendingRouter));
+        console.log("LendingRouter:", address(lendingRouter));
 
-        // 3. Register adapter and set weights
-        vault.addAdapter(address(adapter));
-
-        ILendingAdapter[] memory adapters = new ILendingAdapter[](1);
-        uint256[] memory weights = new uint256[](1);
-        adapters[0] = ILendingAdapter(address(adapter));
-        weights[0] = 10000; // 100% to Aave
-        vault.setAdapterWeights(adapters, weights);
+        // 3. Register strategies after filling the market addresses for the target deployment.
+        // vault.addStrategy(10000, 7000, 3, LendingVenue.Aave, AAVE_POOL, PENDLE_MARKET);
 
         // 4. Set strategist (deployer for now, change after)
         vault.setStrategist(msg.sender);

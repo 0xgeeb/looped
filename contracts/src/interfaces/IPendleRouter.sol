@@ -56,12 +56,9 @@ interface IPendleRouter {
         uint256 netSyIntermediate
     ) external returns (uint256 netTokenOut, uint256 netSyFee);
 
-    function redeemPyToToken(
-        address receiver,
-        address YT,
-        uint256 netPyIn,
-        TokenOutput calldata output
-    ) external returns (uint256 netTokenOut);
+    function redeemPyToToken(address receiver, address YT, uint256 netPyIn, TokenOutput calldata output)
+        external
+        returns (uint256 netTokenOut);
 }
 
 interface IPendleMarket {

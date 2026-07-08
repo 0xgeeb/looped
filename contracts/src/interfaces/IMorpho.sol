@@ -40,30 +40,25 @@ interface IMorpho {
         bytes calldata data
     ) external returns (uint256 assetsRepaid, uint256 sharesRepaid);
 
-    function withdrawCollateral(
-        MarketParams calldata marketParams,
-        uint256 assets,
-        address onBehalf,
-        address receiver
-    ) external;
+    function withdrawCollateral(MarketParams calldata marketParams, uint256 assets, address onBehalf, address receiver)
+        external;
 
-    function supplyCollateral(
-        MarketParams calldata marketParams,
-        uint256 assets,
-        address onBehalf,
-        bytes calldata data
-    ) external;
+    function supplyCollateral(MarketParams calldata marketParams, uint256 assets, address onBehalf, bytes calldata data)
+        external;
 
     function position(bytes32 id, address user) external view returns (Position memory);
 
-    function market(bytes32 id) external view returns (
-        uint128 totalSupplyAssets,
-        uint128 totalSupplyShares,
-        uint128 totalBorrowAssets,
-        uint128 totalBorrowShares,
-        uint128 lastUpdate,
-        uint128 fee
-    );
+    function market(bytes32 id)
+        external
+        view
+        returns (
+            uint128 totalSupplyAssets,
+            uint128 totalSupplyShares,
+            uint128 totalBorrowAssets,
+            uint128 totalBorrowShares,
+            uint128 lastUpdate,
+            uint128 fee
+        );
 
     function idToMarketParams(bytes32 id) external view returns (MarketParams memory);
 }

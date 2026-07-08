@@ -17,11 +17,11 @@ contract MockPendleOracle is IPendleOracle {
         return rate;
     }
 
-    function getOracleState(address, uint32) external pure returns (
-        bool increaseCardinalityRequired,
-        uint16 cardinalityRequired,
-        bool oldestObservationSatisfied
-    ) {
+    function getOracleState(address, uint32)
+        external
+        pure
+        returns (bool increaseCardinalityRequired, uint16 cardinalityRequired, bool oldestObservationSatisfied)
+    {
         return (false, 0, true);
     }
 }

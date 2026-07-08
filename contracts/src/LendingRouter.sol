@@ -126,7 +126,11 @@ contract LendingRouter is ILendingRouter, Ownable {
         revert UnsupportedVenue();
     }
 
-    function getDebt(uint256, LendingVenue venue, address lendingMarket, address token) external view returns (uint256) {
+    function getDebt(uint256, LendingVenue venue, address lendingMarket, address token)
+        external
+        view
+        returns (uint256)
+    {
         if (venue == LendingVenue.Aave) {
             (,, uint256 variableDebt,,,,,) = aaveDataProvider.getUserReserveData(token, address(this));
             return variableDebt;
