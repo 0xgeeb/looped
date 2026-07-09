@@ -45,6 +45,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
     Strategy[] public strategies;
     mapping(uint256 => bool) public isRegisteredStrategy;
+    mapping(uint256 => bool) public strategyCountsInNav;
     mapping(uint256 => uint256) public accountedPtCollateral;
     mapping(uint256 => uint256) public accountedDebt;
     mapping(address => bool) public isSupportedUnderlying;
@@ -101,6 +102,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         uint256 net = ERC20(usdc).balanceOf(address(this));
         for (uint256 i = 0; i < strategies.length; i++) {
             if (!isRegisteredStrategy[i]) continue;
+            if (!strategyCountsInNav[i]) continue;
             Strategy storage strategy = strategies[i];
             if (strategy.pendleMarket == address(0)) continue;
 
@@ -305,6 +307,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             })
         );
         isRegisteredStrategy[strategyId] = true;
+        strategyCountsInNav[strategyId] = true;
 
         emit StrategyAdded(strategyId, lendingMarket, pendleMarket);
     }
@@ -343,6 +346,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         if (col > 0 || dbt > 0) revert InvalidParams();
 
         isRegisteredStrategy[strategyId] = false;
+        strategyCountsInNav[strategyId] = false;
         strategy.active = false;
         strategy.pendleMarket = address(0);
         strategy.sy = address(0);
