@@ -20,6 +20,7 @@ interface ILooped {
     event FeeRecipientUpdated(address indexed newFeeRecipient);
     event StrategyAdded(uint256 indexed strategyId, address indexed lendingMarket, address indexed pendleMarket);
     event StrategyUpdated(uint256 indexed strategyId, bool active, uint16 weightBps);
+    event StrategyNavUpdated(uint256 indexed strategyId, bool countsInNav);
     event StrategyRemoved(uint256 indexed strategyId);
     event LendingRouterUpdated(address indexed newRouter);
     event IdleDeployed(uint256 amount);

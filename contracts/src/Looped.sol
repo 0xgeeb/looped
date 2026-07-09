@@ -375,6 +375,12 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         emit WeightsUpdated();
     }
 
+    function setStrategyCountsInNav(uint256 strategyId, bool countsInNav) external onlyOwner {
+        _validateStrategyId(strategyId);
+        strategyCountsInNav[strategyId] = countsInNav;
+        emit StrategyNavUpdated(strategyId, countsInNav);
+    }
+
     function getStrategyIds() external view returns (uint256[] memory ids) {
         ids = new uint256[](strategies.length);
         for (uint256 i = 0; i < strategies.length; i++) {
