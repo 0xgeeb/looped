@@ -204,6 +204,35 @@ contract LoopedTest is Test {
         assertGt(totalAfter, totalBefore, "appreciates");
     }
 
+    function test_donatedCollateralDoesNotInflateTotalAssets() public {
+        _depositAndDeploy(1000e6);
+
+        uint256 totalBefore = vault.totalAssets();
+        uint256 accountedBefore = vault.accountedPtCollateral(0);
+        uint256 reportedBefore = lendingRouter.collateral(0, address(pt));
+
+        lendingRouter.donateCollateral(0, address(pt), reportedBefore);
+
+        assertEq(vault.accountedPtCollateral(0), accountedBefore, "accounted unchanged");
+        assertEq(lendingRouter.collateral(0, address(pt)), reportedBefore * 2, "reported increased");
+        assertEq(vault.totalAssets(), totalBefore, "total unchanged");
+    }
+
+    function test_donatedCollateralDoesNotCreateRedeemProfit() public {
+        vault.setWithdrawalFeeBps(0);
+        _depositAndDeploy(1000e6);
+
+        lendingRouter.donateCollateral(0, address(pt), lendingRouter.collateral(0, address(pt)) * 10);
+
+        uint256 bobBefore = usdc.balanceOf(bob);
+        vm.prank(bob);
+        uint256 shares = vault.deposit(100e6, bob);
+        vm.prank(bob);
+        vault.redeem(shares, bob, bob);
+
+        assertEq(usdc.balanceOf(bob), bobBefore, "no profit");
+    }
+
     function test_rebalance() public {
         _depositAndDeploy(1000e6);
         uint256 totalBefore = vault.totalAssets();
@@ -425,6 +454,18 @@ contract LoopedTest is Test {
         vault.removeStrategy(0);
 
         assertFalse(vault.isRegisteredStrategy(0), "removed");
+    }
+
+    function test_strategyCanBeExcludedFromNav() public {
+        _depositAndDeploy(1000e6);
+
+        uint256 totalBefore = vault.totalAssets();
+        assertGt(totalBefore, usdc.balanceOf(address(vault)), "strategy counted");
+
+        vault.setStrategyCountsInNav(0, false);
+
+        assertFalse(vault.strategyCountsInNav(0), "nav flag");
+        assertEq(vault.totalAssets(), usdc.balanceOf(address(vault)), "excluded");
     }
 
     function test_setStrategyWeightsMustSumTo10000() public {

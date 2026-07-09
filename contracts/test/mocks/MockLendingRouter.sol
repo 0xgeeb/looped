@@ -41,6 +41,10 @@ contract MockLendingRouter is ILendingRouter {
         MockERC20(token).transfer(msg.sender, amount);
     }
 
+    function donateCollateral(uint256 strategyId, address token, uint256 amount) external {
+        collateral[strategyId][token] += amount;
+    }
+
     function getCollateral(uint256 strategyId, LendingVenue, address, address token) external view returns (uint256) {
         return collateral[strategyId][token];
     }
