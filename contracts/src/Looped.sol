@@ -29,6 +29,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     }
 
     address private immutable usdc;
+    uint8 private immutable usdcDecimals;
 
     address public strategist;
     uint256 public minHealthFactor;
@@ -70,6 +71,8 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         uint256 minHealthFactor_
     ) {
         usdc = asset_;
+        (bool success, uint8 decimals_) = _tryGetAssetDecimals(asset_);
+        usdcDecimals = success ? decimals_ : _DEFAULT_UNDERLYING_DECIMALS;
         pendleRouter = IPendleRouter(pendleRouter_);
         pendleOracle = IPendleOracle(pendleOracle_);
         twapDuration = twapDuration_;
@@ -92,6 +95,10 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
     function symbol() public pure override returns (string memory) {
         return "LOOPED";
+    }
+
+    function _underlyingDecimals() internal view override returns (uint8) {
+        return usdcDecimals;
     }
 
     function _decimalsOffset() internal pure override returns (uint8) {
