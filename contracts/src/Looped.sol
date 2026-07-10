@@ -511,8 +511,14 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
             if (maxWithdrawPt == 0) break;
 
-            uint256 neededPt = _assetToPt(neededUsdc - freed, strategy.pt, ptRate);
-            uint256 toWithdrawPt = maxWithdrawPt < neededPt ? maxWithdrawPt : neededPt;
+            uint256 remainingFree = neededUsdc - freed;
+            uint256 colUsdc = _ptToAsset(ptCol, strategy.pt, ptRate);
+            uint256 totalWithdrawUsdc = _withdrawAmountForFreeing(remainingFree, colUsdc, dbt, maxLtv);
+            uint256 maxWithdrawUsdc = _ptToAsset(maxWithdrawPt, strategy.pt, ptRate);
+            uint256 withdrawUsdc = totalWithdrawUsdc < maxWithdrawUsdc ? totalWithdrawUsdc : maxWithdrawUsdc;
+            uint256 toWithdrawPt = _assetToPt(withdrawUsdc, strategy.pt, ptRate);
+
+            if (toWithdrawPt == 0) break;
 
             try lendingRouter.withdraw(strategyId, strategy.venue, strategy.lendingMarket, strategy.pt, toWithdrawPt) {}
             catch {
@@ -523,19 +529,36 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             uint256 usdcReceived = _swapPtToUsdc(toWithdrawPt, strategyId);
 
             if (dbt > 0) {
-                uint256 repayAmt = usdcReceived < dbt ? usdcReceived : dbt;
+                uint256 repayNeeded = totalWithdrawUsdc > remainingFree ? totalWithdrawUsdc - remainingFree : 0;
+                uint256 repayAmt = _min(_min(usdcReceived, repayNeeded), dbt);
                 if (repayAmt > 0) {
                     SafeTransferLib.safeApprove(usdc, address(lendingRouter), repayAmt);
                     lendingRouter.repay(strategyId, strategy.venue, strategy.lendingMarket, usdc, repayAmt);
                     _decreaseAccountedDebt(strategyId, repayAmt);
-                    freed += usdcReceived > repayAmt ? usdcReceived - repayAmt : 0;
                 }
+                freed += usdcReceived > repayAmt ? usdcReceived - repayAmt : 0;
             } else {
                 freed += usdcReceived;
             }
         }
 
         emit Delooped(strategyId, freed);
+    }
+
+    function _withdrawAmountForFreeing(uint256 freeUsdc, uint256 colUsdc, uint256 dbt, uint256 maxLtv)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (dbt == 0 || maxLtv >= 10000) return freeUsdc;
+
+        uint256 maxDebtAfterFree = (colUsdc - freeUsdc) * maxLtv / 10000;
+        if (dbt <= maxDebtAfterFree) return freeUsdc;
+
+        uint256 numerator = (freeUsdc + dbt) * 10000 - colUsdc * maxLtv;
+        uint256 denominator = 10000 - maxLtv;
+        uint256 withdrawUsdc = (numerator + denominator - 1) / denominator;
+        return withdrawUsdc > freeUsdc ? withdrawUsdc : freeUsdc;
     }
 
     function _deloopAll(uint256 strategyId) internal {

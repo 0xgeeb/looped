@@ -137,11 +137,28 @@ contract LoopedTest is Test {
 
     function test_withdrawTriggersDeloop() public {
         _depositAndDeploy(1000e6);
+        uint256 debtBefore = lendingRouter.debt(0, address(usdc));
+        uint256 collateralBefore = lendingRouter.collateral(0, address(pt));
 
         vm.prank(alice);
         vault.withdraw(500e6, alice, alice);
 
-        assertLt(lendingRouter.collateral(0, address(pt)), 1000e18, "collateral reduced");
+        assertEq(lendingRouter.debt(0, address(usdc)), debtBefore, "debt preserved");
+        assertLt(lendingRouter.collateral(0, address(pt)), collateralBefore, "collateral reduced");
+    }
+
+    function test_largePartialWithdrawDoesNotFullyDeloop() public {
+        _depositAndDeploy(1000e6);
+        uint256 debtBefore = lendingRouter.debt(0, address(usdc));
+        uint256 collateralBefore = lendingRouter.collateral(0, address(pt));
+
+        vm.prank(alice);
+        vault.withdraw(800e6, alice, alice);
+
+        uint256 debtAfter = lendingRouter.debt(0, address(usdc));
+        assertGt(debtAfter, 0, "debt remains");
+        assertLt(debtAfter, debtBefore, "debt partially repaid");
+        assertLt(lendingRouter.collateral(0, address(pt)), collateralBefore, "collateral reduced");
     }
 
     function test_withdrawRevertsWhenTokenOutBelowSlippage() public {
