@@ -70,8 +70,8 @@ contract LoopedTest is Test {
         vm.prank(alice);
         uint256 shares = vault.deposit(1000e6, alice);
 
-        assertEq(vault.decimals(), 12, "share decimals");
-        assertEq(shares, 1000e12, "shares");
+        assertEq(vault.decimals(), 18, "share decimals");
+        assertEq(shares, 1000e18, "shares");
         assertEq(vault.totalAssets(), 1000e6, "assets");
         assertEq(usdc.balanceOf(address(vault)), 1000e6, "idle");
     }

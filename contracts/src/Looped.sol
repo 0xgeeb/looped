@@ -102,7 +102,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     }
 
     function _decimalsOffset() internal pure override returns (uint8) {
-        return 6;
+        return 12;
     }
 
     function totalAssets() public view override returns (uint256) {
