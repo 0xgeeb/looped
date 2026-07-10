@@ -55,6 +55,8 @@ contract LoopedMainnetForkPlaygroundTest is Test {
     uint16 constant TARGET_LTV_BPS = 7_000;
     uint8 constant TARGET_LOOPS = 3;
     uint256 constant MIN_HEALTH_FACTOR = 1.15e18;
+    uint8 constant TOKEN_DISPLAY_DECIMALS = 4;
+    uint8 constant SHARE_DISPLAY_DECIMALS = 12;
 
     // Mock-only knobs.
     uint256 constant MOCK_PT_TO_ASSET_RATE = 1e18;
@@ -69,6 +71,11 @@ contract LoopedMainnetForkPlaygroundTest is Test {
     address pendleMarket;
     address lendingMarket;
     LendingVenue venue;
+    string assetSymbol;
+    string ptSymbol;
+    uint8 assetDecimals;
+    uint8 ptDecimals;
+    uint8 shareDecimals;
 
     function testFork_playground_logVaultAndUserState() public {
         _selectMainnetForkOrSkip();
@@ -93,8 +100,8 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         uint256 shares = vault.deposit(DEPOSIT_ASSETS, user);
         vm.stopPrank();
 
-        console2.log("\nuser deposited assets", DEPOSIT_ASSETS);
-        console2.log("shares minted", shares);
+        console2.log("\nuser deposited assets", _formatToken(DEPOSIT_ASSETS, assetDecimals, assetSymbol));
+        console2.log("shares minted", _formatShares(shares));
         _logState("after deposit");
 
         vm.prank(strategist);
@@ -104,8 +111,8 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         vm.prank(user);
         uint256 burnedShares = vault.withdraw(WITHDRAW_ASSETS, user, user);
 
-        console2.log("\nuser withdrew assets", WITHDRAW_ASSETS);
-        console2.log("shares burned", burnedShares);
+        console2.log("\nuser withdrew assets", _formatToken(WITHDRAW_ASSETS, assetDecimals, assetSymbol));
+        console2.log("shares burned", _formatShares(burnedShares));
         _logState("after withdraw");
 
         vm.prank(strategist);
@@ -182,6 +189,12 @@ contract LoopedMainnetForkPlaygroundTest is Test {
 
         vault.setLendingRouter(lendingRouter);
         vault.addStrategy(STRATEGY_WEIGHT_BPS, TARGET_LTV_BPS, TARGET_LOOPS, venue, lendingMarket, pendleMarket);
+
+        assetSymbol = IERC20Like(asset).symbol();
+        ptSymbol = IERC20Like(pt).symbol();
+        assetDecimals = IERC20Like(asset).decimals();
+        ptDecimals = IERC20Like(pt).decimals();
+        shareDecimals = IERC20Like(address(vault)).decimals();
     }
 
     function _fundUser(uint256 amount) internal {
@@ -196,18 +209,67 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         (uint256 collateral, uint256 debt, uint256 weightBps) = vault.getStrategyPosition(0);
 
         console2.log("\n===", label, "===");
-        console2.log("vault totalAssets", vault.totalAssets());
-        console2.log("vault totalSupply", vault.totalSupply());
-        console2.log("vault idle asset", IERC20Like(asset).balanceOf(address(vault)));
-        console2.log("vault asset balance", IERC20Like(asset).balanceOf(address(vault)));
-        console2.log("vault pt balance", IERC20Like(pt).balanceOf(address(vault)));
-        console2.log("user asset balance", IERC20Like(asset).balanceOf(user));
-        console2.log("user shares", vault.balanceOf(user));
-        console2.log("user previewRedeem", vault.previewRedeem(vault.balanceOf(user)));
-        console2.log("strategy collateral", collateral);
-        console2.log("strategy debt", debt);
-        console2.log("strategy weight bps", weightBps);
-        console2.log("strategy health factor", vault.lendingRouter().getHealthFactor(0, venue, lendingMarket));
-        console2.log("strategy max ltv", vault.lendingRouter().getMaxLtv(0, venue, lendingMarket, pt));
+        console2.log("vault totalAssets", _formatToken(vault.totalAssets(), assetDecimals, assetSymbol));
+        console2.log("vault totalSupply", _formatShares(vault.totalSupply()));
+        console2.log("vault idle asset", _formatToken(IERC20Like(asset).balanceOf(address(vault)), assetDecimals, assetSymbol));
+        console2.log("vault asset balance", _formatToken(IERC20Like(asset).balanceOf(address(vault)), assetDecimals, assetSymbol));
+        console2.log("vault pt balance", _formatToken(IERC20Like(pt).balanceOf(address(vault)), ptDecimals, ptSymbol));
+        console2.log("user asset balance", _formatToken(IERC20Like(asset).balanceOf(user), assetDecimals, assetSymbol));
+        console2.log("user shares", _formatShares(vault.balanceOf(user)));
+        console2.log("user previewRedeem", _formatToken(vault.previewRedeem(vault.balanceOf(user)), assetDecimals, assetSymbol));
+        console2.log("strategy collateral", _formatToken(collateral, ptDecimals, ptSymbol));
+        console2.log("strategy debt", _formatToken(debt, assetDecimals, assetSymbol));
+        console2.log("strategy weight", _formatBps(weightBps));
+        console2.log("strategy health factor", _formatWad(vault.lendingRouter().getHealthFactor(0, venue, lendingMarket)));
+        console2.log("strategy max ltv", _formatBps(vault.lendingRouter().getMaxLtv(0, venue, lendingMarket, pt)));
+    }
+
+    function _formatToken(uint256 value, uint8 decimals, string memory symbol) internal pure returns (string memory) {
+        return string.concat(_formatFixed(value, decimals, TOKEN_DISPLAY_DECIMALS), " ", symbol);
+    }
+
+    function _formatShares(uint256 value) internal view returns (string memory) {
+        return string.concat(_formatFixed(value, shareDecimals, SHARE_DISPLAY_DECIMALS), " LOOPED");
+    }
+
+    function _formatBps(uint256 value) internal pure returns (string memory) {
+        return string.concat(_formatFixed(value, 2, 2), "%");
+    }
+
+    function _formatWad(uint256 value) internal pure returns (string memory) {
+        if (value == type(uint256).max) return "max";
+        return string.concat(_formatFixed(value, 18, 4), "x");
+    }
+
+    function _formatFixed(uint256 value, uint8 decimals, uint8 precision) internal pure returns (string memory) {
+        uint256 scale = 10 ** decimals;
+        uint256 whole = value / scale;
+        uint256 fraction = value % scale;
+
+        if (precision == 0) return vm.toString(whole);
+
+        uint256 precisionScale = 10 ** precision;
+        uint256 roundedFraction = (fraction * precisionScale + scale / 2) / scale;
+        if (roundedFraction == precisionScale) {
+            whole++;
+            roundedFraction = 0;
+        }
+
+        return string.concat(vm.toString(whole), ".", _leftPadZeros(vm.toString(roundedFraction), precision));
+    }
+
+    function _leftPadZeros(string memory value, uint8 minLength) internal pure returns (string memory) {
+        bytes memory valueBytes = bytes(value);
+        if (valueBytes.length >= minLength) return value;
+
+        bytes memory padded = new bytes(minLength);
+        uint256 zeros = minLength - valueBytes.length;
+        for (uint256 i = 0; i < zeros; i++) {
+            padded[i] = "0";
+        }
+        for (uint256 i = 0; i < valueBytes.length; i++) {
+            padded[zeros + i] = valueBytes[i];
+        }
+        return string(padded);
     }
 }
