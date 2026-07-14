@@ -1,66 +1,72 @@
-## Foundry
+# Contracts
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+Foundry project for the Looped ERC4626 vault, lending router, Pendle integrations, mocks, and deployment scripts.
 
-Foundry consists of:
+## Setup
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
-
-## Documentation
-
-https://book.getfoundry.sh/
-
-## Usage
-
-### Build
-
-```shell
-$ forge build
+```bash
+cp .env.example .env
+forge install
 ```
 
-### Test
+The repo vendors the required Foundry libraries under `lib/`, so `forge install` is only needed after changing dependencies.
 
-```shell
-$ forge test
+## Commands
+
+Run all tests:
+
+```bash
+forge test
 ```
 
-### Format
+Run one test contract:
 
-```shell
-$ forge fmt
+```bash
+forge test --match-contract LoopedTest
 ```
 
-### Gas Snapshots
+Run fork tests with an Arbitrum RPC:
 
-```shell
-$ forge snapshot
+```bash
+ARBITRUM_RPC_URL=https://your-rpc.example forge test --match-contract LoopedMainnetForkPlayground
 ```
 
-### Anvil
+Format Solidity:
 
-```shell
-$ anvil
+```bash
+forge fmt
 ```
 
-### Deploy
+Build:
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
+```bash
+forge build
 ```
 
-### Cast
+## Deployment
 
-```shell
-$ cast <subcommand>
+Fill `contracts/.env` and run the deployment script against Arbitrum:
+
+```bash
+source .env
+forge script scripts/Deploy.s.sol:Deploy \
+  --rpc-url "$ARBITRUM_RPC_URL" \
+  --private-key "$DEPLOYER_PRIVATE_KEY" \
+  --broadcast \
+  --verify
 ```
 
-### Help
+Deployment should be followed by a manual verification pass:
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+- Vault asset is USDC.
+- Lending router is set.
+- Owner is the intended multisig.
+- Strategist is the keeper wallet.
+- Strategy market, PT, SY, YT, underlying, venue, and lending market are correct.
+- Strategy weights sum to 10000.
+- `targetBuffer`, `maxSwapSlippageBps`, `minHealthFactor`, `targetLtvBps`, and `targetLoops` match the launch plan.
+- Vault starts paused or with conservative launch limits until rehearsal is complete.
+
+## Current Risk Focus
+
+Before live deposits, prioritize tests and review around Pendle oracle readiness, market validation, slippage enforcement, deloop behavior under poor liquidity, maturity rollover, and lending venue accounting.
