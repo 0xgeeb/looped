@@ -5,7 +5,6 @@ Foundry project for the Looped ERC4626 vault, lending router, Pendle integration
 ## Setup
 
 ```bash
-cp .env.example .env
 forge install
 ```
 
@@ -25,10 +24,10 @@ Run one test contract:
 forge test --match-contract LoopedTest
 ```
 
-Run fork tests with an Arbitrum RPC:
+Run fork tests with a real RPC:
 
 ```bash
-ARBITRUM_RPC_URL=https://your-rpc.example forge test --match-contract LoopedMainnetForkPlayground
+RPC_URL=https://your-rpc.example forge test --match-contract LoopedMainnetForkPlayground
 ```
 
 Format Solidity:
@@ -45,12 +44,11 @@ forge build
 
 ## Deployment
 
-Fill `contracts/.env` and run the deployment script against Arbitrum:
+Set the deployment variables and run the deployment script:
 
 ```bash
-source .env
 forge script scripts/Deploy.s.sol:Deploy \
-  --rpc-url "$ARBITRUM_RPC_URL" \
+  --rpc-url "$RPC_URL" \
   --private-key "$DEPLOYER_PRIVATE_KEY" \
   --broadcast \
   --verify

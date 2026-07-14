@@ -6,7 +6,7 @@ import { usePublicClient } from "wagmi";
 import { VAULT_ADDRESS, vaultEventAbi } from "@/config/contracts";
 
 const USDC_DECIMALS = 6;
-const BLOCKS_BACK = BigInt(10000); // ~5.5 hours on Arbitrum (~2s blocks)
+const BLOCKS_BACK = BigInt(10000);
 
 export type VaultEvent = {
   type: "loop" | "deloop" | "rebalance" | "emergency" | "deploy" | "weights" | "migrate";

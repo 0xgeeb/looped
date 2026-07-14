@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAccount, useConnect, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { arbitrum } from "wagmi/chains";
 import { parseUnits } from "viem";
 import { useVaultData, useAdapterPositions, useUserPosition } from "@/hooks/useVault";
 import { VAULT_ADDRESS, USDC_ADDRESS, isVaultConfigured, vaultAbi, erc20Abi } from "@/config/contracts";
+import { targetChain } from "@/config/wagmi";
 
 const USDC_DECIMALS = 6;
 const ADAPTER_COLORS = ["bg-accent", "bg-warning", "bg-blue-400", "bg-purple-400"];
@@ -93,7 +93,7 @@ export default function VaultPage() {
   const needsApproval = user
     ? user.allowance < parseUnits(String(numAmount || 0), USDC_DECIMALS)
     : false;
-  const isWrongChain = isConnected && chainId !== arbitrum.id;
+  const isWrongChain = isConnected && chainId !== targetChain.id;
   const busy = txPending || txConfirming;
   const txFailed = writeError || receiptError;
 
@@ -145,7 +145,7 @@ export default function VaultPage() {
       abi: erc20Abi,
       functionName: "approve",
       args: [VAULT_ADDRESS, parseUnits(String(numAmount), USDC_DECIMALS)],
-      chainId: arbitrum.id,
+      chainId: targetChain.id,
     }, {
       onError: (err) => {
         setTxMessage(formatTxError(err));
@@ -162,7 +162,7 @@ export default function VaultPage() {
       abi: vaultAbi,
       functionName: "deposit",
       args: [parseUnits(String(numAmount), USDC_DECIMALS), address],
-      chainId: arbitrum.id,
+      chainId: targetChain.id,
     }, {
       onError: (err) => {
         setTxMessage(formatTxError(err));
@@ -179,7 +179,7 @@ export default function VaultPage() {
       abi: vaultAbi,
       functionName: "withdraw",
       args: [parseUnits(String(numAmount), USDC_DECIMALS), address, address],
-      chainId: arbitrum.id,
+      chainId: targetChain.id,
     }, {
       onError: (err) => {
         setTxMessage(formatTxError(err));
@@ -218,7 +218,7 @@ export default function VaultPage() {
         Wrong network
       </div>
       <p className="text-sm text-muted leading-relaxed">
-        Switch your wallet to Arbitrum before approving USDC, depositing, or withdrawing.
+        Switch your wallet to the configured network before approving USDC, depositing, or withdrawing.
       </p>
     </div>
   );
@@ -248,7 +248,7 @@ export default function VaultPage() {
                 USDC Vault
               </h1>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider text-accent bg-accent-subtle border border-accent/20">
-                Arbitrum
+                {targetChain.name}
               </span>
             </div>
             <div className="flex items-center gap-3 text-xs text-muted mt-0.5">
@@ -402,7 +402,7 @@ export default function VaultPage() {
                 { label: "Idle Buffer", value: `${vault?.targetBuffer ?? 0}%` },
                 { label: "Withdrawal Fee", value: `${vault?.withdrawalFee ?? 0}%` },
                 { label: "Adapters", value: `${adapters.length}` },
-                { label: "Chain", value: "Arbitrum" },
+                { label: "Chain", value: targetChain.name },
               ].map((p) => (
                 <div key={p.label} className="flex justify-between items-center py-2 border-b border-border last:border-b-0">
                   <span className="text-xs text-muted">{p.label}</span>
@@ -619,7 +619,7 @@ export default function VaultPage() {
                   )}
                   {txHash && (
                     <a
-                      href={`https://arbiscan.io/tx/${txHash}`}
+                      href={`${targetChain.blockExplorers?.default.url ?? ""}/tx/${txHash}`}
                       target="_blank"
                       rel="noreferrer"
                       className="mt-2 block font-mono text-accent hover:text-accent-dim"
@@ -634,11 +634,11 @@ export default function VaultPage() {
               {isConnected ? (
                 isWrongChain ? (
                   <button
-                    onClick={() => switchChain({ chainId: arbitrum.id })}
+                    onClick={() => switchChain({ chainId: targetChain.id })}
                     disabled={switchPending}
                     className="w-full py-3.5 rounded-lg bg-accent text-background text-sm font-semibold hover:bg-accent-dim transition-all active:scale-[0.98] disabled:opacity-50"
                   >
-                    {switchPending ? "Switching..." : "Switch to Arbitrum"}
+                    {switchPending ? "Switching..." : `Switch to ${targetChain.name}`}
                   </button>
                 ) : tab === "deposit" && needsApproval && numAmount > 0 ? (
                   <button

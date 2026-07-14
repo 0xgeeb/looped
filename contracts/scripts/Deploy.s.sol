@@ -7,12 +7,6 @@ import {LendingRouter} from "../src/LendingRouter.sol";
 import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
 
 contract Deploy is Script {
-    address internal constant DEFAULT_USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
-    address internal constant DEFAULT_AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
-    address internal constant DEFAULT_AAVE_DATA_PROVIDER = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
-    address internal constant DEFAULT_PENDLE_ROUTER = 0x888888888889758F76e7103c6CbF23ABbF58F946;
-    address internal constant DEFAULT_PENDLE_ORACLE = 0x66A1096C6366B2529274dF4F5d8f56DA60a06f62;
-
     struct DeployConfig {
         address usdc;
         address aavePool;
@@ -65,11 +59,11 @@ contract Deploy is Script {
     }
 
     function _readConfig() internal view returns (DeployConfig memory config) {
-        config.usdc = vm.envOr("USDC_ADDRESS", DEFAULT_USDC);
-        config.aavePool = vm.envOr("AAVE_POOL", DEFAULT_AAVE_POOL);
-        config.aaveDataProvider = vm.envOr("AAVE_DATA_PROVIDER", DEFAULT_AAVE_DATA_PROVIDER);
-        config.pendleRouter = vm.envOr("PENDLE_ROUTER", DEFAULT_PENDLE_ROUTER);
-        config.pendleOracle = vm.envOr("PENDLE_ORACLE", DEFAULT_PENDLE_ORACLE);
+        config.usdc = vm.envOr("USDC_ADDRESS", address(0));
+        config.aavePool = vm.envOr("AAVE_POOL", address(0));
+        config.aaveDataProvider = vm.envOr("AAVE_DATA_PROVIDER", address(0));
+        config.pendleRouter = vm.envOr("PENDLE_ROUTER", address(0));
+        config.pendleOracle = vm.envOr("PENDLE_ORACLE", address(0));
         config.pendleMarket = vm.envOr("PENDLE_MARKET", address(0));
         config.strategist = vm.envOr("STRATEGIST_ADDRESS", msg.sender);
         config.owner = vm.envOr("OWNER_ADDRESS", msg.sender);
@@ -77,6 +71,12 @@ contract Deploy is Script {
         config.targetLtvBps = uint16(vm.envOr("TARGET_LTV_BPS", uint256(7000)));
         config.targetLoops = uint8(vm.envOr("TARGET_LOOPS", uint256(3)));
         config.minHealthFactor = vm.envOr("MIN_HEALTH_FACTOR", uint256(1.15e18));
+
+        require(config.usdc != address(0), "USDC_ADDRESS required");
+        require(config.aavePool != address(0), "AAVE_POOL required");
+        require(config.aaveDataProvider != address(0), "AAVE_DATA_PROVIDER required");
+        require(config.pendleRouter != address(0), "PENDLE_ROUTER required");
+        require(config.pendleOracle != address(0), "PENDLE_ORACLE required");
     }
 
     function _printSummary(DeployConfig memory config, address vault, address lendingRouter) internal view {

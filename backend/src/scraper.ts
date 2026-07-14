@@ -63,24 +63,6 @@ export const scrapeYieldz = async (): Promise<YieldzMarket[]> => {
     // Wait for table rows to appear
     await page.waitForSelector("table tbody tr", { timeout: 15_000 });
 
-    // Try to click an Arbitrum chain filter in the UI
-    try {
-      const arbFilter = page.locator('button, [role="option"], [role="checkbox"], label, div[class*="filter"], div[class*="chip"]')
-        .filter({ hasText: /^Arbitrum$/ })
-        .first();
-      if (await arbFilter.isVisible({ timeout: 3_000 })) {
-        await arbFilter.click();
-        await page.waitForTimeout(2000);
-        console.log("[scraper] clicked Arbitrum chain filter");
-      } else {
-        console.log("[scraper] no Arbitrum filter button found, will filter in code");
-      }
-    } catch {
-      console.log("[scraper] chain filter click failed, will filter in code");
-    }
-
-    await page.waitForTimeout(1000);
-
     // Helper to extract rows from the current page
     const extractRows = `(() => {
       const rows = document.querySelectorAll("table tbody tr");
@@ -148,7 +130,7 @@ export const scrapeYieldz = async (): Promise<YieldzMarket[]> => {
     const lltvIdx = idx("lltv") !== -1 ? idx("lltv") : idx("ltv");
 
     // Known chain names that get embedded in cell text
-    const CHAINS = ["Ethereum", "Arbitrum", "Base", "Optimism", "Polygon"];
+    const CHAINS = ["Ethereum", "Base", "Optimism", "Polygon"];
 
     // Extract chain name from a cell string and return [cleanName, chain]
     const extractChain = (raw: string): [string, string] => {

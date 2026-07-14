@@ -11,7 +11,12 @@ export const isVaultConfigured =
 export const VAULT_ADDRESS: Address = isVaultConfigured
   ? (configuredVaultAddress as Address)
   : zeroAddress;
-export const USDC_ADDRESS: Address = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // Arbitrum USDC
+
+const configuredUsdcAddress = process.env.NEXT_PUBLIC_USDC_ADDRESS;
+export const USDC_ADDRESS: Address =
+  configuredUsdcAddress && isAddress(configuredUsdcAddress)
+    ? (configuredUsdcAddress as Address)
+    : zeroAddress;
 
 // ── ABIs ─────────────────────────────────────────────────────────────
 export const vaultAbi = parseAbi([

@@ -13,7 +13,7 @@ The repo has three production surfaces:
 - Node.js 20+
 - npm
 - Foundry (`forge`, `cast`, `anvil`)
-- An Arbitrum RPC URL for fork tests and deployment rehearsals
+- An RPC URL for fork tests and deployment rehearsals
 
 ## Setup
 
@@ -27,14 +27,6 @@ cd ../backend
 npm install
 ```
 
-Copy env examples before running services:
-
-```bash
-cp ui/.env.example ui/.env.local
-cp backend/.env.example backend/.env
-cp contracts/.env.example contracts/.env
-```
-
 ## Common Commands
 
 Run contract tests:
@@ -44,11 +36,11 @@ cd contracts
 forge test
 ```
 
-Run the Arbitrum fork playground or fork adapter tests with a real RPC:
+Run the fork playground or fork adapter tests with a real RPC:
 
 ```bash
 cd contracts
-ARBITRUM_RPC_URL=https://your-rpc.example forge test --match-contract LoopedMainnetForkPlayground
+RPC_URL=https://your-rpc.example forge test --match-contract LoopedMainnetForkPlayground
 ```
 
 Build the UI:
@@ -75,7 +67,7 @@ npm test
 
 ## Production Assumptions
 
-The intended production chain is Arbitrum mainnet. The deployment should use USDC as the vault asset, the Arbitrum Pendle router and oracle, and a lending router configured for the selected lending venues.
+The intended production chain should be configured explicitly before deployment. The deployment should use USDC as the vault asset, the selected Pendle router and oracle, and a lending router configured for the selected lending venues.
 
 Wallet roles:
 
