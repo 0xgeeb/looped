@@ -7,6 +7,21 @@ import {LendingRouter} from "../src/LendingRouter.sol";
 import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
 
 contract Deploy is Script {
+    address internal constant USDC = address(0);
+    address internal constant AAVE_POOL = address(0);
+    address internal constant AAVE_DATA_PROVIDER = address(0);
+    address internal constant PENDLE_ROUTER = address(0);
+    address internal constant PENDLE_ORACLE = address(0);
+    address internal constant PENDLE_MARKET = address(0);
+
+    address internal constant STRATEGIST = address(0);
+    address internal constant OWNER = address(0);
+
+    uint32 internal constant TWAP_DURATION = 900;
+    uint16 internal constant TARGET_LTV_BPS = 7000;
+    uint8 internal constant TARGET_LOOPS = 3;
+    uint256 internal constant MIN_HEALTH_FACTOR = 1.15e18;
+
     struct DeployConfig {
         address usdc;
         address aavePool;
@@ -59,24 +74,24 @@ contract Deploy is Script {
     }
 
     function _readConfig() internal view returns (DeployConfig memory config) {
-        config.usdc = vm.envOr("USDC_ADDRESS", address(0));
-        config.aavePool = vm.envOr("AAVE_POOL", address(0));
-        config.aaveDataProvider = vm.envOr("AAVE_DATA_PROVIDER", address(0));
-        config.pendleRouter = vm.envOr("PENDLE_ROUTER", address(0));
-        config.pendleOracle = vm.envOr("PENDLE_ORACLE", address(0));
-        config.pendleMarket = vm.envOr("PENDLE_MARKET", address(0));
-        config.strategist = vm.envOr("STRATEGIST_ADDRESS", msg.sender);
-        config.owner = vm.envOr("OWNER_ADDRESS", msg.sender);
-        config.twapDuration = uint32(vm.envOr("TWAP_DURATION", uint256(900)));
-        config.targetLtvBps = uint16(vm.envOr("TARGET_LTV_BPS", uint256(7000)));
-        config.targetLoops = uint8(vm.envOr("TARGET_LOOPS", uint256(3)));
-        config.minHealthFactor = vm.envOr("MIN_HEALTH_FACTOR", uint256(1.15e18));
+        config.usdc = USDC;
+        config.aavePool = AAVE_POOL;
+        config.aaveDataProvider = AAVE_DATA_PROVIDER;
+        config.pendleRouter = PENDLE_ROUTER;
+        config.pendleOracle = PENDLE_ORACLE;
+        config.pendleMarket = PENDLE_MARKET;
+        config.strategist = STRATEGIST == address(0) ? msg.sender : STRATEGIST;
+        config.owner = OWNER == address(0) ? msg.sender : OWNER;
+        config.twapDuration = TWAP_DURATION;
+        config.targetLtvBps = TARGET_LTV_BPS;
+        config.targetLoops = TARGET_LOOPS;
+        config.minHealthFactor = MIN_HEALTH_FACTOR;
 
-        require(config.usdc != address(0), "USDC_ADDRESS required");
-        require(config.aavePool != address(0), "AAVE_POOL required");
-        require(config.aaveDataProvider != address(0), "AAVE_DATA_PROVIDER required");
-        require(config.pendleRouter != address(0), "PENDLE_ROUTER required");
-        require(config.pendleOracle != address(0), "PENDLE_ORACLE required");
+        require(config.usdc != address(0), "set USDC");
+        require(config.aavePool != address(0), "set AAVE_POOL");
+        require(config.aaveDataProvider != address(0), "set AAVE_DATA_PROVIDER");
+        require(config.pendleRouter != address(0), "set PENDLE_ROUTER");
+        require(config.pendleOracle != address(0), "set PENDLE_ORACLE");
     }
 
     function _printSummary(DeployConfig memory config, address vault, address lendingRouter) internal view {

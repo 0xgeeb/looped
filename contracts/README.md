@@ -44,7 +44,7 @@ forge build
 
 ## Deployment
 
-Set the deployment variables and run the deployment script:
+Set the non-sensitive deployment constants at the top of `scripts/Deploy.s.sol`, then run the deployment script with only sensitive/runtime values supplied outside the repo:
 
 ```bash
 forge script scripts/Deploy.s.sol:Deploy \

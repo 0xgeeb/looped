@@ -67,7 +67,7 @@ npm test
 
 ## Production Assumptions
 
-The intended production chain should be configured explicitly before deployment. The deployment should use USDC as the vault asset, the selected Pendle router and oracle, and a lending router configured for the selected lending venues.
+The intended production chain should be configured explicitly in `contracts/scripts/Deploy.s.sol` before deployment. The deployment should use USDC as the vault asset, the selected Pendle router and oracle, and a lending router configured for the selected lending venues.
 
 Wallet roles:
 
