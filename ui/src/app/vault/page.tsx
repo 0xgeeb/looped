@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAccount, useConnect, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { arbitrum } from "wagmi/chains";
@@ -33,9 +33,22 @@ function shortAddr(addr: string) {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
+function formatTxError(error: unknown) {
+  if (error && typeof error === "object") {
+    const maybeError = error as { shortMessage?: string; message?: string };
+    return maybeError.shortMessage ?? maybeError.message ?? "Transaction failed";
+  }
+  if (typeof error === "string") return error;
+  return "Transaction failed";
+}
+
+type TxAction = "approve" | "deposit" | "withdraw";
+
 export default function VaultPage() {
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
   const [amount, setAmount] = useState("");
+  const [txAction, setTxAction] = useState<TxAction | null>(null);
+  const [txMessage, setTxMessage] = useState<string | null>(null);
 
   const { address, chainId, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
@@ -44,8 +57,18 @@ export default function VaultPage() {
   const { adapters } = useAdapterPositions(vault?.adapters ?? []);
   const { user } = useUserPosition(address);
 
-  const { data: txHash, writeContract, isPending: txPending } = useWriteContract();
-  const { isLoading: txConfirming } = useWaitForTransactionReceipt({ hash: txHash });
+  const {
+    data: txHash,
+    writeContract,
+    isPending: txPending,
+    error: writeError,
+    reset: resetWrite,
+  } = useWriteContract();
+  const {
+    isLoading: txConfirming,
+    isSuccess: txConfirmed,
+    error: receiptError,
+  } = useWaitForTransactionReceipt({ hash: txHash });
 
   const sharePrice = vault?.sharePrice ?? 1;
   const withdrawalFee = vault?.withdrawalFee ?? 0.05;
@@ -71,42 +94,112 @@ export default function VaultPage() {
     ? user.allowance < parseUnits(String(numAmount || 0), USDC_DECIMALS)
     : false;
   const isWrongChain = isConnected && chainId !== arbitrum.id;
+  const busy = txPending || txConfirming;
+  const txFailed = writeError || receiptError;
+
+  useEffect(() => {
+    if (!txAction) return;
+
+    if (txPending) {
+      setTxMessage(
+        txAction === "approve"
+          ? "Confirm USDC approval in your wallet."
+          : `Confirm ${txAction} in your wallet.`,
+      );
+      return;
+    }
+
+    if (txConfirming) {
+      setTxMessage("Transaction submitted. Waiting for confirmation.");
+      return;
+    }
+
+    if (txConfirmed) {
+      setTxMessage(
+        txAction === "approve"
+          ? "Approval confirmed. You can deposit now."
+          : `${txAction[0].toUpperCase()}${txAction.slice(1)} confirmed.`,
+      );
+      setTxAction(null);
+    }
+  }, [txAction, txPending, txConfirming, txConfirmed]);
+
+  useEffect(() => {
+    if (txFailed) {
+      setTxMessage(formatTxError(txFailed));
+      setTxAction(null);
+    }
+  }, [txFailed]);
+
+  const startTx = (action: TxAction) => {
+    resetWrite();
+    setTxAction(action);
+    setTxMessage(null);
+  };
 
   const handleApprove = () => {
     if (!isVaultConfigured || isWrongChain) return;
+    startTx("approve");
     writeContract({
       address: USDC_ADDRESS,
       abi: erc20Abi,
       functionName: "approve",
       args: [VAULT_ADDRESS, parseUnits(String(numAmount), USDC_DECIMALS)],
       chainId: arbitrum.id,
+    }, {
+      onError: (err) => {
+        setTxMessage(formatTxError(err));
+        setTxAction(null);
+      },
     });
   };
 
   const handleDeposit = () => {
     if (!address || !isVaultConfigured || isWrongChain) return;
+    startTx("deposit");
     writeContract({
       address: VAULT_ADDRESS,
       abi: vaultAbi,
       functionName: "deposit",
       args: [parseUnits(String(numAmount), USDC_DECIMALS), address],
       chainId: arbitrum.id,
+    }, {
+      onError: (err) => {
+        setTxMessage(formatTxError(err));
+        setTxAction(null);
+      },
     });
   };
 
   const handleWithdraw = () => {
     if (!address || !isVaultConfigured || isWrongChain) return;
+    startTx("withdraw");
     writeContract({
       address: VAULT_ADDRESS,
       abi: vaultAbi,
       functionName: "withdraw",
       args: [parseUnits(String(numAmount), USDC_DECIMALS), address, address],
       chainId: arbitrum.id,
+    }, {
+      onError: (err) => {
+        setTxMessage(formatTxError(err));
+        setTxAction(null);
+      },
     });
   };
 
-  const busy = txPending || txConfirming;
   const actionDisabled = !isVaultConfigured || isWrongChain || numAmount <= 0 || busy;
+  const actionLabel = txPending
+    ? "Check wallet"
+    : txConfirming
+      ? "Confirming..."
+      : tab === "deposit"
+        ? numAmount > 0
+          ? `Deposit ${fmt(numAmount, 2)} USDC`
+          : "Enter amount"
+        : numAmount > 0
+          ? `Withdraw ${fmt(netWithdraw, 2)} USDC`
+          : "Enter amount";
 
   const configuredBanner = !isVaultConfigured && (
     <div className="mb-5 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
@@ -509,6 +602,34 @@ export default function VaultPage() {
                 </div>
               )}
 
+              {(txMessage || txHash) && (
+                <div
+                  className={`mb-5 rounded-lg border px-4 py-3 text-xs ${
+                    txFailed
+                      ? "border-danger/30 bg-danger/10"
+                      : txConfirmed
+                        ? "border-accent/30 bg-accent/10"
+                        : "border-border bg-surface-2"
+                  }`}
+                >
+                  {txMessage && (
+                    <div className={txFailed ? "text-danger" : "text-muted"}>
+                      {txMessage}
+                    </div>
+                  )}
+                  {txHash && (
+                    <a
+                      href={`https://arbiscan.io/tx/${txHash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 block font-mono text-accent hover:text-accent-dim"
+                    >
+                      {shortAddr(txHash)}
+                    </a>
+                  )}
+                </div>
+              )}
+
               {/* Action Button */}
               {isConnected ? (
                 isWrongChain ? (
@@ -525,7 +646,7 @@ export default function VaultPage() {
                     disabled={busy || !isVaultConfigured}
                     className="w-full py-3.5 rounded-lg bg-surface-3 border border-accent/30 text-sm font-semibold text-accent hover:bg-surface-2 transition-all active:scale-[0.98] disabled:opacity-50"
                   >
-                    {busy ? "Approving..." : `Approve USDC`}
+                    {txPending ? "Check wallet" : txConfirming ? "Approving..." : "Approve USDC"}
                   </button>
                 ) : (
                   <button
@@ -539,15 +660,7 @@ export default function VaultPage() {
                   >
                     {!isVaultConfigured
                       ? "Vault not configured"
-                      : busy
-                      ? "Confirming..."
-                      : tab === "deposit"
-                        ? numAmount > 0
-                          ? `Deposit ${fmt(numAmount, 2)} USDC`
-                          : "Enter amount"
-                        : numAmount > 0
-                          ? `Withdraw ${fmt(netWithdraw, 2)} USDC`
-                          : "Enter amount"}
+                      : actionLabel}
                   </button>
                 )
               ) : (
