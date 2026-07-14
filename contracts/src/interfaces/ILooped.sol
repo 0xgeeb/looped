@@ -11,6 +11,7 @@ interface ILooped {
     error NotMatured();
     error NoMarketSet();
     error UnsupportedUnderlying();
+    error OracleNotReady();
 
     event PositionLooped(uint256 indexed strategyId, uint256 ptCollateral, uint256 debt);
     event Delooped(uint256 indexed strategyId, uint256 assetsFreed);

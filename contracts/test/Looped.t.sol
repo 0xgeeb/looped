@@ -361,6 +361,33 @@ contract LoopedTest is Test {
         vault.rollInto(0, address(otherMarket));
     }
 
+    function test_rollIntoRejectsExpiredMarket() public {
+        MockPendleMarket expiredMarket = new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp);
+
+        vm.prank(strategist);
+        vm.expectRevert(ILooped.InvalidParams.selector);
+        vault.rollInto(0, address(expiredMarket));
+    }
+
+    function test_rollIntoRejectsUnreadyOracle() public {
+        MockPendleMarket market2 =
+            new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
+        pendleOracle.setOracleState(true, 32, false);
+
+        vm.prank(strategist);
+        vm.expectRevert(ILooped.OracleNotReady.selector);
+        vault.rollInto(0, address(market2));
+    }
+
+    function test_addStrategyRejectsUnreadyOracle() public {
+        MockPendleMarket market2 =
+            new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
+        pendleOracle.setOracleState(false, 0, false);
+
+        vm.expectRevert(ILooped.OracleNotReady.selector);
+        vault.addStrategy(0, 7000, 3, LendingVenue.Aave, makeAddr("market2"), address(market2));
+    }
+
     function test_emergencyDeleverage() public {
         _depositAndDeploy(1000e6);
 
