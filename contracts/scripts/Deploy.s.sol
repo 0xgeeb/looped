@@ -7,40 +7,110 @@ import {LendingRouter} from "../src/LendingRouter.sol";
 import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
 
 contract Deploy is Script {
-    // ─── Arbitrum Mainnet Addresses ────────────────────────────
-    address constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
-    address constant AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
-    address constant AAVE_DATA_PROVIDER = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
-    address constant PENDLE_ROUTER = 0x888888888889758F76e7103c6CbF23ABbF58F946;
-    address constant PENDLE_ORACLE = 0x66A1096C6366B2529274dF4F5d8f56DA60a06f62;
+    address internal constant DEFAULT_USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
+    address internal constant DEFAULT_AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
+    address internal constant DEFAULT_AAVE_DATA_PROVIDER = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
+    address internal constant DEFAULT_PENDLE_ROUTER = 0x888888888889758F76e7103c6CbF23ABbF58F946;
+    address internal constant DEFAULT_PENDLE_ORACLE = 0x66A1096C6366B2529274dF4F5d8f56DA60a06f62;
+
+    struct DeployConfig {
+        address usdc;
+        address aavePool;
+        address aaveDataProvider;
+        address pendleRouter;
+        address pendleOracle;
+        address pendleMarket;
+        address strategist;
+        address owner;
+        uint32 twapDuration;
+        uint16 targetLtvBps;
+        uint8 targetLoops;
+        uint256 minHealthFactor;
+    }
 
     function run() external {
+        DeployConfig memory config = _readConfig();
+
         vm.startBroadcast();
 
-        // 1. Deploy vault with USDC as asset
         Looped vault = new Looped(
-            USDC,
-            PENDLE_ROUTER,
-            PENDLE_ORACLE,
-            900, // 15 min TWAP
-            3, // target loops
-            7000, // 70% LTV
-            1.15e18 // min health factor
+            config.usdc,
+            config.pendleRouter,
+            config.pendleOracle,
+            config.twapDuration,
+            config.targetLoops,
+            config.targetLtvBps,
+            config.minHealthFactor
         );
-        console.log("Looped vault:", address(vault));
 
-        // 2. Deploy lending router and point vault at it
-        LendingRouter lendingRouter = new LendingRouter(address(vault), AAVE_DATA_PROVIDER, address(0));
+        LendingRouter lendingRouter = new LendingRouter(address(vault), config.aaveDataProvider, address(0));
         vault.setLendingRouter(address(lendingRouter));
-        console.log("LendingRouter:", address(lendingRouter));
 
-        // 3. Register strategies after filling the market addresses for the target deployment.
-        // vault.addStrategy(10000, 7000, 3, LendingVenue.Aave, AAVE_POOL, PENDLE_MARKET);
+        if (config.pendleMarket != address(0)) {
+            vault.addStrategy(
+                10000, config.targetLtvBps, config.targetLoops, LendingVenue.Aave, config.aavePool, config.pendleMarket
+            );
+        }
 
-        // 4. Set strategist (deployer for now, change after)
-        vault.setStrategist(msg.sender);
-        console.log("Strategist set to deployer:", msg.sender);
+        vault.setStrategist(config.strategist);
+
+        if (config.owner != msg.sender) {
+            vault.transferOwnership(config.owner);
+        }
 
         vm.stopBroadcast();
+
+        _printSummary(config, address(vault), address(lendingRouter));
+        _writeSummary(config, address(vault), address(lendingRouter));
+    }
+
+    function _readConfig() internal view returns (DeployConfig memory config) {
+        config.usdc = vm.envOr("USDC_ADDRESS", DEFAULT_USDC);
+        config.aavePool = vm.envOr("AAVE_POOL", DEFAULT_AAVE_POOL);
+        config.aaveDataProvider = vm.envOr("AAVE_DATA_PROVIDER", DEFAULT_AAVE_DATA_PROVIDER);
+        config.pendleRouter = vm.envOr("PENDLE_ROUTER", DEFAULT_PENDLE_ROUTER);
+        config.pendleOracle = vm.envOr("PENDLE_ORACLE", DEFAULT_PENDLE_ORACLE);
+        config.pendleMarket = vm.envOr("PENDLE_MARKET", address(0));
+        config.strategist = vm.envOr("STRATEGIST_ADDRESS", msg.sender);
+        config.owner = vm.envOr("OWNER_ADDRESS", msg.sender);
+        config.twapDuration = uint32(vm.envOr("TWAP_DURATION", uint256(900)));
+        config.targetLtvBps = uint16(vm.envOr("TARGET_LTV_BPS", uint256(7000)));
+        config.targetLoops = uint8(vm.envOr("TARGET_LOOPS", uint256(3)));
+        config.minHealthFactor = vm.envOr("MIN_HEALTH_FACTOR", uint256(1.15e18));
+    }
+
+    function _printSummary(DeployConfig memory config, address vault, address lendingRouter) internal view {
+        console.log("=== Looped deployment summary ===");
+        console.log("chain id:", block.chainid);
+        console.log("vault:", vault);
+        console.log("lending router:", lendingRouter);
+        console.log("asset:", config.usdc);
+        console.log("pendle router:", config.pendleRouter);
+        console.log("pendle oracle:", config.pendleOracle);
+        console.log("pendle market:", config.pendleMarket);
+        console.log("aave pool:", config.aavePool);
+        console.log("strategist:", config.strategist);
+        console.log("owner:", config.owner);
+        console.log("twap duration:", config.twapDuration);
+        console.log("target ltv bps:", config.targetLtvBps);
+        console.log("target loops:", config.targetLoops);
+        console.log("min health factor:", config.minHealthFactor);
+        console.log("verify: owner, strategist, router, weights, market metadata, pause state, and launch limits");
+    }
+
+    function _writeSummary(DeployConfig memory config, address vault, address lendingRouter) internal {
+        string memory object = "deployment";
+        string memory json = vm.serializeUint(object, "chainId", block.chainid);
+        json = vm.serializeAddress(object, "vault", vault);
+        json = vm.serializeAddress(object, "lendingRouter", lendingRouter);
+        json = vm.serializeAddress(object, "asset", config.usdc);
+        json = vm.serializeAddress(object, "pendleRouter", config.pendleRouter);
+        json = vm.serializeAddress(object, "pendleOracle", config.pendleOracle);
+        json = vm.serializeAddress(object, "pendleMarket", config.pendleMarket);
+        json = vm.serializeAddress(object, "aavePool", config.aavePool);
+        json = vm.serializeAddress(object, "strategist", config.strategist);
+        json = vm.serializeAddress(object, "owner", config.owner);
+        json = vm.serializeUint(object, "deployBlock", block.number);
+        vm.writeJson(json, "deployment-output.json");
     }
 }
