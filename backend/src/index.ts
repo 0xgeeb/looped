@@ -15,7 +15,10 @@ app.get("/health", (_req, res) => {
 
 app.listen(config.port, () => {
   console.log(`Looped backend running on port ${config.port}`);
-  startKeeper();
+  void startKeeper().catch((err) => {
+    console.error("[keeper] failed to start:", err);
+    process.exit(1);
+  });
 });
 
 process.on("SIGINT", () => {

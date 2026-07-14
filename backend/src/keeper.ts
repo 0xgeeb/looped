@@ -74,6 +74,7 @@ type KeeperStatus = {
   dryRun: boolean;
   vaultAddress: Address;
   keeperAddress: Address;
+  strategistAddress: Address | null;
   chainId: number;
   startedAt: string | null;
   stoppedAt: string | null;
@@ -102,6 +103,7 @@ const keeperStatus: KeeperStatus = {
   dryRun: config.dryRun,
   vaultAddress: vault,
   keeperAddress: account.address,
+  strategistAddress: null,
   chainId: mainnet.id,
   startedAt: null,
   stoppedAt: null,
@@ -147,6 +149,17 @@ const waitForHash = async (job: JobName, hash: Hash) => {
   console.log(`[keeper:${job}] tx sent: ${hash}`);
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   console.log(`[keeper:${job}] confirmed block ${receipt.blockNumber}`);
+};
+
+const validateKeeperWallet = async () => {
+  const strategist = await readVault("strategist") as Address;
+  keeperStatus.strategistAddress = strategist;
+
+  if (strategist.toLowerCase() !== account.address.toLowerCase()) {
+    throw new Error(
+      `keeper address ${account.address} does not match vault strategist ${strategist}`,
+    );
+  }
 };
 
 // ─── Reads ───────────────────────────────────────────────────
@@ -385,8 +398,15 @@ const schedule = (name: JobName, fn: () => Promise<void>, intervalMs: number) =>
 
 // ─── Public API ──────────────────────────────────────────────
 
-export const startKeeper = () => {
+export const startKeeper = async () => {
   if (running) return;
+
+  try {
+    await validateKeeperWallet();
+  } catch (err) {
+    markJobFailed("healthCheck", err);
+    throw err;
+  }
 
   running = true;
   keeperStatus.running = true;
@@ -395,6 +415,7 @@ export const startKeeper = () => {
 
   console.log(`[keeper] started — vault: ${vault}`);
   console.log(`[keeper] caller address: ${account.address}`);
+  console.log(`[keeper] strategist address: ${keeperStatus.strategistAddress}`);
   if (config.dryRun) console.log("[keeper] dry run enabled - transactions will not be sent");
 
   schedule("healthCheck", checkHealthFactor, config.healthCheckInterval);
