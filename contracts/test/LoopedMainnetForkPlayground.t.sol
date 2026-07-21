@@ -5,12 +5,7 @@ import {Test, console2} from "forge-std/Test.sol";
 import {Looped} from "../src/Looped.sol";
 import {LendingRouter} from "../src/LendingRouter.sol";
 import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockLendingRouter} from "./mocks/MockLendingRouter.sol";
-import {MockPendleMarket} from "./mocks/MockPendleMarket.sol";
-import {MockPendleOracle} from "./mocks/MockPendleOracle.sol";
-import {MockPendleRouter} from "./mocks/MockPendleRouter.sol";
-import {MockPendleSy} from "./mocks/MockPendleSy.sol";
+import {IPendleMarket, IPendleSy} from "../src/interfaces/IPendleRouter.sol";
 
 interface IERC20Like {
     function approve(address spender, uint256 amount) external returns (bool);
@@ -28,10 +23,8 @@ contract LoopedMainnetForkPlaygroundTest is Test {
     address constant MAINNET_AAVE_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
     address constant MAINNET_AAVE_DATA_PROVIDER = 0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3;
     address constant MAINNET_PENDLE_ROUTER = 0x888888888889758F76e7103c6CbF23ABbF58F946;
-
-    // Fill these when you want to exercise a real Pendle market/oracle.
-    address constant MAINNET_PENDLE_ORACLE = address(0);
-    address constant MAINNET_PENDLE_MARKET = address(0);
+    address constant MAINNET_PENDLE_ORACLE = 0x5542be50420E88dd7D5B4a3D488FA6ED82F6DAc2;
+    address constant MAINNET_PENDLE_MARKET = 0x61703e1eA2887fFFD4B5F777bAfD6ABD7122bcF9;
 
     /*//////////////////////////////////////////////////////////////
                          PLAYGROUND CONFIG
@@ -119,12 +112,13 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         pendleRouter = MAINNET_PENDLE_ROUTER;
         pendleOracle = MAINNET_PENDLE_ORACLE;
         pendleMarket = MAINNET_PENDLE_MARKET;
-        (address sy, address marketPt,) = MockPendleMarket(pendleMarket).readTokens();
-        sy;
+        (address sy, address marketPt,) = IPendleMarket(pendleMarket).readTokens();
+        address marketUnderlying = IPendleSy(sy).yieldToken();
         pt = marketPt;
 
         vault = new Looped(asset, pendleRouter, pendleOracle, TWAP_DURATION, TARGET_LOOPS, TARGET_LTV_BPS, MIN_HEALTH_FACTOR);
         vault.setStrategist(strategist);
+        vault.setSupportedUnderlying(marketUnderlying, true);
 
         lendingRouter = address(new LendingRouter(address(vault), MAINNET_AAVE_DATA_PROVIDER, address(0)));
         lendingMarket = MAINNET_AAVE_POOL;
