@@ -64,6 +64,7 @@ interface IPendleRouter {
 interface IPendleMarket {
     function readTokens() external view returns (address sy, address pt, address yt);
     function expiry() external view returns (uint256);
+    function increaseObservationsCardinalityNext(uint16 cardinalityNext) external;
 }
 
 interface IPendleSy {

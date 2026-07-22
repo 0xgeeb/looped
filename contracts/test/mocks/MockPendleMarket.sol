@@ -8,6 +8,7 @@ contract MockPendleMarket is IPendleMarket {
     address public pt_;
     address public yt_;
     uint256 public expiry_;
+    uint16 public cardinalityNext;
 
     constructor(address sy, address pt, address yt, uint256 exp) {
         sy_ = sy;
@@ -22,6 +23,10 @@ contract MockPendleMarket is IPendleMarket {
 
     function expiry() external view returns (uint256) {
         return expiry_;
+    }
+
+    function increaseObservationsCardinalityNext(uint16 cardinalityNext_) external {
+        cardinalityNext = cardinalityNext_;
     }
 
     function setExpiry(uint256 exp) external {

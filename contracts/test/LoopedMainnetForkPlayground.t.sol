@@ -5,6 +5,7 @@ import {Test, console2} from "forge-std/Test.sol";
 import {Looped} from "../src/Looped.sol";
 import {LendingRouter} from "../src/LendingRouter.sol";
 import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
+import {IPendleOracle} from "../src/interfaces/IPendleOracle.sol";
 import {IPendleMarket, IPendleSy} from "../src/interfaces/IPendleRouter.sol";
 
 interface IERC20Like {
@@ -41,10 +42,6 @@ contract LoopedMainnetForkPlaygroundTest is Test {
     uint256 constant MIN_HEALTH_FACTOR = 1.15e18;
     uint8 constant TOKEN_DISPLAY_DECIMALS = 4;
     uint8 constant SHARE_DISPLAY_DECIMALS = 12;
-
-    // Mock-only knobs.
-    uint256 constant MOCK_PT_TO_ASSET_RATE = 1e18;
-    uint256 constant MOCK_PT_PER_USDC = 1e12;
 
     address user = makeAddr("user");
     address strategist = makeAddr("strategist");
@@ -112,6 +109,10 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         pendleRouter = MAINNET_PENDLE_ROUTER;
         pendleOracle = MAINNET_PENDLE_ORACLE;
         pendleMarket = MAINNET_PENDLE_MARKET;
+        _assertMainnetContract(asset);
+        _assertMainnetContract(pendleRouter);
+        _assertMainnetContract(pendleOracle);
+        _assertMainnetContract(pendleMarket);
         (address sy, address marketPt,) = IPendleMarket(pendleMarket).readTokens();
         address marketUnderlying = IPendleSy(sy).yieldToken();
         pt = marketPt;
@@ -125,6 +126,7 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         venue = LendingVenue.Aave;
 
         vault.setLendingRouter(lendingRouter);
+        _preparePendleOracle(pendleOracle, pendleMarket);
         vault.addStrategy(STRATEGY_WEIGHT_BPS, TARGET_LTV_BPS, TARGET_LOOPS, venue, lendingMarket, pendleMarket);
 
         assetSymbol = IERC20Like(asset).symbol();
@@ -134,8 +136,21 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         shareDecimals = IERC20Like(address(vault)).decimals();
     }
 
+    function _preparePendleOracle(address pendleOracle, address market) internal {
+        (bool increaseCardinalityRequired, uint16 cardinalityRequired,) =
+            IPendleOracle(pendleOracle).getOracleState(market, TWAP_DURATION);
+
+        if (increaseCardinalityRequired) {
+            IPendleMarket(market).increaseObservationsCardinalityNext(cardinalityRequired);
+        }
+    }
+
     function _fundUser(uint256 amount) internal {
         deal(asset, user, amount);
+    }
+
+    function _assertMainnetContract(address target) internal view {
+        assertGt(target.code.length, 0, "expected mainnet contract");
     }
 
     function _logState(string memory label) internal view {
