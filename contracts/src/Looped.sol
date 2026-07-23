@@ -239,6 +239,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         _validateStrategyId(strategyId);
         Strategy storage strategy = strategies[strategyId];
 
+        _validatePendleMarketAddress(pendleMarket);
         (address sy, address pt, address yt) = IPendleMarket(pendleMarket).readTokens();
         address underlying = _readSyYieldToken(sy);
         _validateMarketMetadata(pendleMarket, sy, pt, yt, underlying);
@@ -293,6 +294,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     ) external onlyOwner returns (uint256 strategyId) {
         if (weightBps > 10000 || targetLtvBps > 10000 || lendingMarket == address(0)) revert InvalidParams();
 
+        _validatePendleMarketAddress(pendleMarket);
         (address sy, address pt, address yt) = IPendleMarket(pendleMarket).readTokens();
         address underlying = _readSyYieldToken(sy);
         _validateMarketMetadata(pendleMarket, sy, pt, yt, underlying);
@@ -733,11 +735,14 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         return IPendleSy(sy).yieldToken();
     }
 
+    function _validatePendleMarketAddress(address pendleMarket) internal view {
+        if (pendleMarket == address(0) || pendleMarket.code.length == 0) revert InvalidParams();
+    }
+
     function _validateMarketMetadata(address pendleMarket, address sy, address pt, address yt, address underlying)
         internal
         view
     {
-        if (pendleMarket == address(0) || pendleMarket.code.length == 0) revert InvalidParams();
         if (IPendleMarket(pendleMarket).expiry() <= block.timestamp) revert InvalidParams();
         if (sy == address(0) || pt == address(0) || yt == address(0)) revert InvalidParams();
         if (underlying == address(0) || !isSupportedUnderlying[underlying]) revert UnsupportedUnderlying();

@@ -257,6 +257,15 @@ contract LoopedTest is Test {
         assertEq(vault.totalAssets(), totalBefore, "total unchanged");
     }
 
+    function test_underreportedDebtDoesNotInflateTotalAssets() public {
+        _depositAndDeploy(1000e6);
+
+        uint256 totalBefore = vault.totalAssets();
+        lendingRouter.setDebt(0, address(usdc), 0);
+
+        assertEq(vault.totalAssets(), totalBefore, "accounted debt");
+    }
+
     function test_donatedCollateralDoesNotCreateRedeemProfit() public {
         vault.setWithdrawalFeeBps(0);
         _depositAndDeploy(1000e6);
@@ -388,6 +397,20 @@ contract LoopedTest is Test {
         vm.prank(strategist);
         vm.expectRevert(ILooped.InvalidParams.selector);
         vault.rollInto(0, address(expiredMarket));
+    }
+
+    function test_rollIntoRejectsMarketWithoutCode() public {
+        vm.prank(strategist);
+        vm.expectRevert(ILooped.InvalidParams.selector);
+        vault.rollInto(0, makeAddr("notMarket"));
+    }
+
+    function test_addStrategyRejectsZeroPtMarket() public {
+        MockPendleMarket badMarket =
+            new MockPendleMarket(address(sy), address(0), address(yt), block.timestamp + 30 days);
+
+        vm.expectRevert(ILooped.InvalidParams.selector);
+        vault.addStrategy(0, 7000, 3, LendingVenue.Aave, makeAddr("market2"), address(badMarket));
     }
 
     function test_rollIntoRejectsUnreadyOracle() public {

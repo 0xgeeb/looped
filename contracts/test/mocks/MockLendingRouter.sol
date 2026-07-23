@@ -45,6 +45,10 @@ contract MockLendingRouter is ILendingRouter {
         collateral[strategyId][token] += amount;
     }
 
+    function setDebt(uint256 strategyId, address token, uint256 amount) external {
+        debt[strategyId][token] = amount;
+    }
+
     function getCollateral(uint256 strategyId, LendingVenue, address, address token) external view returns (uint256) {
         return collateral[strategyId][token];
     }
