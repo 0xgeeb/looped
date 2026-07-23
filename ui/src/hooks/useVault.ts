@@ -1,7 +1,7 @@
 "use client";
 
 import { useReadContract, useReadContracts } from "wagmi";
-import { formatUnits, type Address } from "viem";
+import { formatUnits, parseUnits, type Address } from "viem";
 import {
   VAULT_ADDRESS,
   USDC_ADDRESS,
@@ -12,6 +12,17 @@ import {
 } from "@/config/contracts";
 
 const USDC_DECIMALS = 6;
+const SHARE_DECIMALS = USDC_DECIMALS + 12;
+
+const parseUsdcAmount = (amount: string) => {
+  if (!/^\d*(\.\d*)?$/.test(amount) || amount === "" || amount === ".") return null;
+
+  try {
+    return parseUnits(amount, USDC_DECIMALS);
+  } catch {
+    return null;
+  }
+};
 
 // ── Vault core data ──────────────────────────────────────────────
 export function useVaultData() {
@@ -46,7 +57,7 @@ export function useVaultData() {
     ? Number(formatUnits(totalAssets.result as bigint, USDC_DECIMALS))
     : 0;
   const totalSupplyNum = totalSupply.result
-    ? Number(formatUnits(totalSupply.result as bigint, USDC_DECIMALS + 6)) // decimalsOffset = 6
+    ? Number(formatUnits(totalSupply.result as bigint, SHARE_DECIMALS))
     : 0;
 
   const sharePrice = totalSupplyNum > 0 ? totalAssetsNum / totalSupplyNum : 1;
@@ -69,6 +80,39 @@ export function useVaultData() {
       paused: (paused.result as boolean) ?? false,
       adapters: (adapters.result as Address[]) ?? [],
     },
+  };
+}
+
+// ── Contract previews ───────────────────────────────────────────
+export function useVaultPreviews(amount: string) {
+  const parsedAmount = parseUsdcAmount(amount);
+  const enabled = isVaultConfigured && parsedAmount !== null && parsedAmount > BigInt(0);
+
+  const depositPreview = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "previewDeposit",
+    args: parsedAmount === null ? undefined : [parsedAmount],
+    query: {
+      enabled,
+    },
+  });
+
+  const withdrawPreview = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "previewWithdraw",
+    args: parsedAmount === null ? undefined : [parsedAmount],
+    query: {
+      enabled,
+    },
+  });
+
+  return {
+    depositShares: depositPreview.data ? Number(formatUnits(depositPreview.data, SHARE_DECIMALS)) : null,
+    withdrawShares: withdrawPreview.data ? Number(formatUnits(withdrawPreview.data, SHARE_DECIMALS)) : null,
+    isLoading: depositPreview.isLoading || withdrawPreview.isLoading,
+    error: depositPreview.error ?? withdrawPreview.error,
   };
 }
 
@@ -169,7 +213,7 @@ export function useUserPosition(userAddress: Address | undefined) {
         ? Number(formatUnits(usdcBalance.result as bigint, USDC_DECIMALS))
         : 0,
       vaultShares: vaultShares?.result
-        ? Number(formatUnits(vaultShares.result as bigint, USDC_DECIMALS + 6))
+        ? Number(formatUnits(vaultShares.result as bigint, SHARE_DECIMALS))
         : 0,
       allowance: (allowance?.result as bigint) ?? BigInt(0),
     },

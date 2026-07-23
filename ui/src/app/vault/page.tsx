@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAccount, useConnect, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { parseUnits } from "viem";
-import { useVaultData, useAdapterPositions, useUserPosition } from "@/hooks/useVault";
+import { useVaultData, useAdapterPositions, useUserPosition, useVaultPreviews } from "@/hooks/useVault";
 import { VAULT_ADDRESS, USDC_ADDRESS, isVaultConfigured, vaultAbi, erc20Abi } from "@/config/contracts";
 import { targetChain } from "@/config/wagmi";
 
@@ -56,6 +56,7 @@ export default function VaultPage() {
   const { vault, isLoading: vaultLoading } = useVaultData();
   const { adapters } = useAdapterPositions(vault?.adapters ?? []);
   const { user } = useUserPosition(address);
+  const { depositShares, withdrawShares, isLoading: previewsLoading } = useVaultPreviews(amount);
 
   const {
     data: txHash,
@@ -80,11 +81,12 @@ export default function VaultPage() {
     : 0;
 
   // Deposit preview
-  const sharesToReceive = numAmount > 0 ? numAmount / sharePrice : 0;
+  const fallbackShares = numAmount > 0 ? numAmount / sharePrice : 0;
+  const sharesToReceive = depositShares ?? fallbackShares;
   // Withdraw preview
   const fee = numAmount * (withdrawalFee / 100);
   const netWithdraw = numAmount - fee;
-  const sharesToBurn = numAmount > 0 ? numAmount / sharePrice : 0;
+  const sharesToBurn = withdrawShares ?? fallbackShares;
   // User value
   const userValue = user ? user.vaultShares * sharePrice : 0;
   const maxInput = tab === "deposit" ? (user?.usdcBalance ?? 0) : userValue;
@@ -547,7 +549,9 @@ export default function VaultPage() {
                 </label>
                 <div className="flex items-center gap-3 rounded-lg bg-surface-2 border border-border px-4 py-3">
                   <span className="flex-1 text-xl font-mono font-medium tabular-nums text-foreground/60">
-                    {numAmount > 0
+                    {previewsLoading
+                      ? "..."
+                      : numAmount > 0
                       ? tab === "deposit"
                         ? fmt(sharesToReceive, 4)
                         : fmt(sharesToBurn, 4)
