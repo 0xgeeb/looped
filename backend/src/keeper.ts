@@ -151,15 +151,18 @@ const waitForHash = async (job: JobName, hash: Hash) => {
   console.log(`[keeper:${job}] confirmed block ${receipt.blockNumber}`);
 };
 
+export const assertKeeperIsStrategist = (keeperAddress: Address, strategistAddress: Address) => {
+  if (strategistAddress.toLowerCase() !== keeperAddress.toLowerCase()) {
+    throw new Error(
+      `keeper address ${keeperAddress} does not match vault strategist ${strategistAddress}`,
+    );
+  }
+};
+
 const validateKeeperWallet = async () => {
   const strategist = await readVault("strategist") as Address;
   keeperStatus.strategistAddress = strategist;
-
-  if (strategist.toLowerCase() !== account.address.toLowerCase()) {
-    throw new Error(
-      `keeper address ${account.address} does not match vault strategist ${strategist}`,
-    );
-  }
+  assertKeeperIsStrategist(account.address, strategist);
 };
 
 // ─── Reads ───────────────────────────────────────────────────
