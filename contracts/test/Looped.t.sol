@@ -143,7 +143,14 @@ contract LoopedTest is Test {
         vm.prank(alice);
         vault.withdraw(500e6, alice, alice);
 
-        assertEq(lendingRouter.debt(0, address(usdc)), debtBefore, "debt preserved");
+        uint256 debtAfter = lendingRouter.debt(0, address(usdc));
+        uint256 collateralAfter = lendingRouter.collateral(0, address(pt));
+        uint256 collateralValue = collateralAfter / 1e12;
+        uint256 maxTargetDebt = collateralValue * 7000 / 10000;
+
+        assertGt(debtAfter, 0, "debt remains");
+        assertLt(debtAfter, debtBefore, "debt partially repaid");
+        assertLe(debtAfter, maxTargetDebt, "target ltv");
         assertLt(lendingRouter.collateral(0, address(pt)), collateralBefore, "collateral reduced");
     }
 
@@ -159,6 +166,20 @@ contract LoopedTest is Test {
         assertGt(debtAfter, 0, "debt remains");
         assertLt(debtAfter, debtBefore, "debt partially repaid");
         assertLt(lendingRouter.collateral(0, address(pt)), collateralBefore, "collateral reduced");
+    }
+
+    function test_largePartialWithdrawRepaysToTargetLtv() public {
+        _depositAndDeploy(1000e6);
+
+        vm.prank(alice);
+        vault.withdraw(800e6, alice, alice);
+
+        uint256 collateralAfter = lendingRouter.collateral(0, address(pt));
+        uint256 debtAfter = lendingRouter.debt(0, address(usdc));
+        uint256 collateralValue = collateralAfter / 1e12;
+        uint256 maxTargetDebt = collateralValue * 7000 / 10000;
+
+        assertLe(debtAfter, maxTargetDebt, "target ltv");
     }
 
     function test_withdrawRevertsWhenTokenOutBelowSlippage() public {

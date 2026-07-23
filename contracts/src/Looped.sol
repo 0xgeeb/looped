@@ -513,7 +513,8 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
             uint256 remainingFree = neededUsdc - freed;
             uint256 colUsdc = _ptToAsset(ptCol, strategy.pt, ptRate);
-            uint256 totalWithdrawUsdc = _withdrawAmountForFreeing(remainingFree, colUsdc, dbt, maxLtv);
+            uint256 totalWithdrawUsdc =
+                _withdrawAmountForFreeing(remainingFree, colUsdc, dbt, strategy.targetLtvBps);
             uint256 maxWithdrawUsdc = _ptToAsset(maxWithdrawPt, strategy.pt, ptRate);
             uint256 withdrawUsdc = totalWithdrawUsdc < maxWithdrawUsdc ? totalWithdrawUsdc : maxWithdrawUsdc;
             uint256 toWithdrawPt = _assetToPt(withdrawUsdc, strategy.pt, ptRate);
@@ -529,7 +530,12 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             uint256 usdcReceived = _swapPtToUsdc(toWithdrawPt, strategyId);
 
             if (dbt > 0) {
-                uint256 repayNeeded = totalWithdrawUsdc > remainingFree ? totalWithdrawUsdc - remainingFree : 0;
+                uint256 repayNeeded = _repayAmountForTargetAfterWithdraw(
+                    withdrawUsdc,
+                    colUsdc,
+                    dbt,
+                    strategy.targetLtvBps
+                );
                 uint256 repayAmt = _min(_min(usdcReceived, repayNeeded), dbt);
                 if (repayAmt > 0) {
                     SafeTransferLib.safeApprove(usdc, address(lendingRouter), repayAmt);
@@ -559,6 +565,18 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         uint256 denominator = 10000 - maxLtv;
         uint256 withdrawUsdc = (numerator + denominator - 1) / denominator;
         return withdrawUsdc > freeUsdc ? withdrawUsdc : freeUsdc;
+    }
+
+    function _repayAmountForTargetAfterWithdraw(uint256 withdrawUsdc, uint256 colUsdc, uint256 dbt, uint256 targetLtv)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (dbt == 0) return 0;
+        if (withdrawUsdc >= colUsdc) return dbt;
+
+        uint256 targetDebt = (colUsdc - withdrawUsdc) * targetLtv / 10000;
+        return dbt > targetDebt ? dbt - targetDebt : 0;
     }
 
     function _deloopAll(uint256 strategyId) internal {
