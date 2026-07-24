@@ -9,7 +9,17 @@ const USDC_DECIMALS = 6;
 const BLOCKS_BACK = BigInt(10000);
 
 export type VaultEvent = {
-  type: "loop" | "deloop" | "rebalance" | "emergency" | "deploy" | "weights" | "migrate";
+  type:
+    | "loop"
+    | "deloop"
+    | "rebalance"
+    | "emergency"
+    | "deploy"
+    | "weights"
+    | "rollover"
+    | "rollin"
+    | "strategy"
+    | "config";
   blockNumber: bigint;
   txHash: string;
   timestamp: number;
@@ -22,14 +32,14 @@ const EVENT_PARSERS: Record<string, (log: Log, args: Record<string, unknown>) =>
     blockNumber: log.blockNumber ?? BigInt(0),
     txHash: log.transactionHash ?? "",
     timestamp: 0,
-    details: `Looped ${formatUnits((args.collateral as bigint) ?? BigInt(0), 18)} PT collateral`,
+    details: `Strategy ${String(args.strategyId ?? "0")} looped ${formatUnits((args.ptCollateral as bigint) ?? BigInt(0), 18)} PT collateral`,
   }),
   Delooped: (log, args) => ({
     type: "deloop",
     blockNumber: log.blockNumber ?? BigInt(0),
     txHash: log.transactionHash ?? "",
     timestamp: 0,
-    details: `Freed ${formatUnits((args.assetsFreed as bigint) ?? BigInt(0), USDC_DECIMALS)} USDC`,
+    details: `Strategy ${String(args.strategyId ?? "0")} freed ${formatUnits((args.assetsFreed as bigint) ?? BigInt(0), USDC_DECIMALS)} USDC`,
   }),
   Rebalanced: (log) => ({
     type: "rebalance",
@@ -57,14 +67,49 @@ const EVENT_PARSERS: Record<string, (log: Log, args: Record<string, unknown>) =>
     blockNumber: log.blockNumber ?? BigInt(0),
     txHash: log.transactionHash ?? "",
     timestamp: 0,
-    details: "Adapter weights updated",
+    details: "Strategy weights updated",
   }),
-  AdapterMigrated: (log) => ({
-    type: "migrate",
+  RolledOverToIdle: (log, args) => ({
+    type: "rollover",
     blockNumber: log.blockNumber ?? BigInt(0),
     txHash: log.transactionHash ?? "",
     timestamp: 0,
-    details: "Position migrated between adapters",
+    details: `Strategy ${String(args.strategyId ?? "0")} rolled over to idle with ${formatUnits((args.amount as bigint) ?? BigInt(0), USDC_DECIMALS)} USDC freed`,
+  }),
+  RolledInto: (log, args) => ({
+    type: "rollin",
+    blockNumber: log.blockNumber ?? BigInt(0),
+    txHash: log.transactionHash ?? "",
+    timestamp: 0,
+    details: `Strategy ${String(args.strategyId ?? "0")} rolled into ${String(args.pendleMarket ?? "")}`,
+  }),
+  StrategyAdded: (log, args) => ({
+    type: "strategy",
+    blockNumber: log.blockNumber ?? BigInt(0),
+    txHash: log.transactionHash ?? "",
+    timestamp: 0,
+    details: `Strategy ${String(args.strategyId ?? "0")} added`,
+  }),
+  StrategyUpdated: (log, args) => ({
+    type: "strategy",
+    blockNumber: log.blockNumber ?? BigInt(0),
+    txHash: log.transactionHash ?? "",
+    timestamp: 0,
+    details: `Strategy ${String(args.strategyId ?? "0")} updated`,
+  }),
+  StrategyRemoved: (log, args) => ({
+    type: "strategy",
+    blockNumber: log.blockNumber ?? BigInt(0),
+    txHash: log.transactionHash ?? "",
+    timestamp: 0,
+    details: `Strategy ${String(args.strategyId ?? "0")} removed`,
+  }),
+  LendingRouterUpdated: (log, args) => ({
+    type: "config",
+    blockNumber: log.blockNumber ?? BigInt(0),
+    txHash: log.transactionHash ?? "",
+    timestamp: 0,
+    details: `Lending router updated to ${String(args.newRouter ?? "")}`,
   }),
 };
 

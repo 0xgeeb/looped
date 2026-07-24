@@ -29,11 +29,18 @@ const ADAPTER_COLORS = ["bg-accent", "bg-accent/40", "bg-warning", "bg-purple-40
 
 export default function Dashboard() {
   const { vault, isLoading } = useVaultData();
-  const { adapters } = useAdapterPositions(vault?.adapters ?? []);
+  const { adapters } = useAdapterPositions(vault?.strategyIds ?? [], vault?.lendingRouter);
 
   const totalDebt = adapters.reduce((sum, a) => sum + a.debt, 0);
-  const avgHealthFactor = adapters.length > 0
-    ? adapters.reduce((sum, a) => sum + a.healthFactor * a.weightBps, 0) / adapters.reduce((sum, a) => sum + a.weightBps, 0)
+  const totalWeight = adapters.reduce((sum, a) => sum + a.weightBps, 0);
+  const avgHealthFactor = totalWeight > 0
+    ? adapters.reduce((sum, a) => sum + a.healthFactor * a.weightBps, 0) / totalWeight
+    : 0;
+  const weightedTargetLtv = totalWeight > 0
+    ? adapters.reduce((sum, a) => sum + a.targetLtv * a.weightBps, 0) / totalWeight
+    : 0;
+  const weightedTargetLoops = totalWeight > 0
+    ? adapters.reduce((sum, a) => sum + a.targetLoops * a.weightBps, 0) / totalWeight
     : 0;
 
   if (isLoading) {
@@ -132,9 +139,9 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div>
-                      <div className="font-semibold font-mono">{shortAddr(adapter.address)}</div>
+                      <div className="font-semibold font-mono">Strategy {adapter.id}</div>
                       <div className="text-xs text-muted font-mono">
-                        {adapter.weightBps / 100}% weight
+                        {shortAddr(adapter.address)} · {adapter.weightBps / 100}% weight
                       </div>
                     </div>
                   </div>
@@ -201,11 +208,11 @@ export default function Dashboard() {
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="rounded-lg bg-surface-2 px-3 py-2">
                 <div className="text-muted mb-0.5">Target LTV</div>
-                <div className="font-mono">{vault?.targetLtv ?? 0}%</div>
+                <div className="font-mono">{fmt(weightedTargetLtv, 2)}%</div>
               </div>
               <div className="rounded-lg bg-surface-2 px-3 py-2">
                 <div className="text-muted mb-0.5">Loop Count</div>
-                <div className="font-mono">{vault?.targetLoops ?? 0}x</div>
+                <div className="font-mono">{fmt(weightedTargetLoops, 2)}x</div>
               </div>
               <div className="rounded-lg bg-surface-2 px-3 py-2">
                 <div className="text-muted mb-0.5">Buffer</div>

@@ -8,7 +8,7 @@ import {
   isVaultConfigured,
   vaultAbi,
   erc20Abi,
-  adapterAbi,
+  lendingRouterAbi,
 } from "@/config/contracts";
 
 const USDC_DECIMALS = 6;
@@ -24,6 +24,20 @@ const parseUsdcAmount = (amount: string) => {
   }
 };
 
+type StrategyConfig = readonly [
+  boolean,
+  number,
+  number,
+  number,
+  number,
+  Address,
+  Address,
+  Address,
+  Address,
+  Address,
+  Address,
+];
+
 // ── Vault core data ──────────────────────────────────────────────
 export function useVaultData() {
   const { data, isLoading, error } = useReadContracts({
@@ -31,12 +45,13 @@ export function useVaultData() {
       { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "totalAssets" },
       { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "totalSupply" },
       { address: USDC_ADDRESS, abi: erc20Abi, functionName: "balanceOf", args: [VAULT_ADDRESS] },
-      { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "targetLtv" },
-      { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "targetLoops" },
       { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "targetBuffer" },
       { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "withdrawalFeeBps" },
+      { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "minHealthFactor" },
+      { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "lendingRouter" },
       { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "paused" },
-      { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "getAdapters" },
+      { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "strategist" },
+      { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "getStrategyIds" },
     ],
     query: {
       enabled: isVaultConfigured,
@@ -51,7 +66,18 @@ export function useVaultData() {
     return { isLoading: true, error, vault: null };
   }
 
-  const [totalAssets, totalSupply, idleAssets, targetLtv, targetLoops, targetBuffer, withdrawalFeeBps, paused, adapters] = data;
+  const [
+    totalAssets,
+    totalSupply,
+    idleAssets,
+    targetBuffer,
+    withdrawalFeeBps,
+    minHealthFactor,
+    lendingRouter,
+    paused,
+    strategist,
+    strategyIds,
+  ] = data;
 
   const totalAssetsNum = totalAssets.result
     ? Number(formatUnits(totalAssets.result as bigint, USDC_DECIMALS))
@@ -72,13 +98,16 @@ export function useVaultData() {
         ? Number(formatUnits(idleAssets.result as bigint, USDC_DECIMALS))
         : 0,
       sharePrice,
-      targetLtv: targetLtv.result ? Number(targetLtv.result) / 100 : 0,
-      targetLoops: targetLoops.result ? Number(targetLoops.result) : 0,
       targetBuffer: targetBuffer.result ? Number(targetBuffer.result) / 100 : 0,
       withdrawalFeeBps: withdrawalFeeBps.result ? Number(withdrawalFeeBps.result) : 0,
       withdrawalFee: withdrawalFeeBps.result ? Number(withdrawalFeeBps.result) / 100 : 0,
+      minHealthFactor: minHealthFactor.result
+        ? Number(formatUnits(minHealthFactor.result as bigint, 18))
+        : 0,
+      lendingRouter: lendingRouter.result as Address | undefined,
       paused: (paused.result as boolean) ?? false,
-      adapters: (adapters.result as Address[]) ?? [],
+      strategist: strategist.result as Address | undefined,
+      strategyIds: ((strategyIds.result as bigint[] | undefined) ?? []).map((id) => Number(id)),
     },
   };
 }
@@ -116,53 +145,98 @@ export function useVaultPreviews(amount: string) {
   };
 }
 
-// ── Per-adapter positions ────────────────────────────────────────
-export function useAdapterPositions(adapterAddresses: Address[]) {
-  const contracts = adapterAddresses.flatMap((addr) => [
+// ── Per-strategy positions ───────────────────────────────────────
+export function useStrategyPositions(strategyIds: number[], lendingRouter: Address | undefined) {
+  const contracts = strategyIds.flatMap((id) => [
     {
       address: VAULT_ADDRESS,
       abi: vaultAbi,
-      functionName: "getAdapterPosition" as const,
-      args: [addr],
+      functionName: "strategies" as const,
+      args: [BigInt(id)],
     },
     {
-      address: addr,
-      abi: adapterAbi,
-      functionName: "getHealthFactor" as const,
+      address: VAULT_ADDRESS,
+      abi: vaultAbi,
+      functionName: "getStrategyPosition" as const,
+      args: [BigInt(id)],
     },
   ]);
 
-  const { data, isLoading } = useReadContracts({
+  const { data: strategyData, isLoading: strategiesLoading } = useReadContracts({
     contracts,
     query: {
-      enabled: isVaultConfigured && adapterAddresses.length > 0,
+      enabled: isVaultConfigured && strategyIds.length > 0,
     },
   });
 
-  if (!isVaultConfigured || adapterAddresses.length === 0) {
+  const routerContracts = strategyIds.flatMap((id, i) => {
+    const config = strategyData?.[i * 2]?.result as StrategyConfig | undefined;
+    if (!config || !lendingRouter) return [];
+
+    return [
+      {
+        address: lendingRouter,
+        abi: lendingRouterAbi,
+        functionName: "getHealthFactor" as const,
+        args: [BigInt(id), config[4], config[5]],
+      },
+      {
+        address: lendingRouter,
+        abi: lendingRouterAbi,
+        functionName: "getMaxLtv" as const,
+        args: [BigInt(id), config[4], config[5], config[8]],
+      },
+    ];
+  });
+
+  const { data: routerData, isLoading: routerLoading } = useReadContracts({
+    contracts: routerContracts,
+    query: {
+      enabled: isVaultConfigured && routerContracts.length > 0,
+    },
+  });
+
+  if (!isVaultConfigured || strategyIds.length === 0) {
     return { isLoading: false, adapters: [] };
   }
 
-  if (!data || isLoading) {
+  if (!strategyData || strategiesLoading || routerLoading) {
     return { isLoading: true, adapters: [] };
   }
 
-  const adapters = adapterAddresses.map((addr, i) => {
+  const adapters = strategyIds.map((id, i) => {
     const base = i * 2;
-    const position = data[base]?.result as [bigint, bigint, bigint] | undefined;
-    const hf = data[base + 1]?.result as bigint | undefined;
+    const routerBase = i * 2;
+    const config = strategyData[base]?.result as StrategyConfig | undefined;
+    const position = strategyData[base + 1]?.result as [bigint, bigint, bigint] | undefined;
+    const hf = routerData?.[routerBase]?.result as bigint | undefined;
+    const maxLtv = routerData?.[routerBase + 1]?.result as bigint | undefined;
 
     return {
-      address: addr,
+      id,
+      address: config?.[6] ?? VAULT_ADDRESS,
+      active: config?.[0] ?? false,
+      targetLtv: config ? Number(config[2]) / 100 : 0,
+      targetLoops: config?.[3] ?? 0,
+      venue: config?.[4] ?? 0,
+      lendingMarket: config?.[5],
+      pendleMarket: config?.[6],
+      sy: config?.[7],
+      pt: config?.[8],
+      yt: config?.[9],
+      underlying: config?.[10],
       ptCollateral: position ? Number(formatUnits(position[0], 18)) : 0,
       debt: position ? Number(formatUnits(position[1], USDC_DECIMALS)) : 0,
       weightBps: position ? Number(position[2]) : 0,
       healthFactor: hf ? Number(formatUnits(hf, 18)) : 0,
+      maxLtv: maxLtv ? Number(maxLtv) / 100 : 0,
     };
   });
 
   return { isLoading: false, adapters };
 }
+
+export const useAdapterPositions = useStrategyPositions;
 
 // ── User position ────────────────────────────────────────────────
 export function useUserPosition(userAddress: Address | undefined) {

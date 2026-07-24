@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useAccount, useConnect, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { parseUnits } from "viem";
@@ -54,7 +54,7 @@ export default function VaultPage() {
   const { connect, connectors } = useConnect();
   const { switchChain, isPending: switchPending } = useSwitchChain();
   const { vault, isLoading: vaultLoading } = useVaultData();
-  const { adapters } = useAdapterPositions(vault?.adapters ?? []);
+  const { adapters } = useAdapterPositions(vault?.strategyIds ?? [], vault?.lendingRouter);
   const { user } = useUserPosition(address);
   const { depositShares, withdrawShares, isLoading: previewsLoading } = useVaultPreviews(amount);
 
@@ -76,8 +76,15 @@ export default function VaultPage() {
   const numAmount = parseFloat(amount) || 0;
 
   const totalDebt = adapters.reduce((sum, a) => sum + a.debt, 0);
-  const avgHealthFactor = adapters.length > 0
-    ? adapters.reduce((sum, a) => sum + a.healthFactor * a.weightBps, 0) / adapters.reduce((sum, a) => sum + a.weightBps, 0)
+  const totalWeight = adapters.reduce((sum, a) => sum + a.weightBps, 0);
+  const avgHealthFactor = totalWeight > 0
+    ? adapters.reduce((sum, a) => sum + a.healthFactor * a.weightBps, 0) / totalWeight
+    : 0;
+  const weightedTargetLtv = totalWeight > 0
+    ? adapters.reduce((sum, a) => sum + a.targetLtv * a.weightBps, 0) / totalWeight
+    : 0;
+  const weightedTargetLoops = totalWeight > 0
+    ? adapters.reduce((sum, a) => sum + a.targetLoops * a.weightBps, 0) / totalWeight
     : 0;
 
   // Deposit preview
@@ -98,40 +105,20 @@ export default function VaultPage() {
   const isWrongChain = isConnected && chainId !== targetChain.id;
   const busy = txPending || txConfirming;
   const txFailed = writeError || receiptError;
-
-  useEffect(() => {
-    if (!txAction) return;
-
-    if (txPending) {
-      setTxMessage(
-        txAction === "approve"
-          ? "Confirm USDC approval in your wallet."
-          : `Confirm ${txAction} in your wallet.`,
-      );
-      return;
-    }
-
-    if (txConfirming) {
-      setTxMessage("Transaction submitted. Waiting for confirmation.");
-      return;
-    }
-
-    if (txConfirmed) {
-      setTxMessage(
-        txAction === "approve"
-          ? "Approval confirmed. You can deposit now."
-          : `${txAction[0].toUpperCase()}${txAction.slice(1)} confirmed.`,
-      );
-      setTxAction(null);
-    }
-  }, [txAction, txPending, txConfirming, txConfirmed]);
-
-  useEffect(() => {
-    if (txFailed) {
-      setTxMessage(formatTxError(txFailed));
-      setTxAction(null);
-    }
-  }, [txFailed]);
+  const derivedTxMessage = txFailed
+    ? formatTxError(txFailed)
+    : txPending
+      ? txAction === "approve"
+        ? "Confirm USDC approval in your wallet."
+        : `Confirm ${txAction ?? "transaction"} in your wallet.`
+      : txConfirming
+        ? "Transaction submitted. Waiting for confirmation."
+        : txConfirmed
+          ? txAction === "approve"
+            ? "Approval confirmed. You can deposit now."
+            : `${txAction ? txAction[0].toUpperCase() + txAction.slice(1) : "Transaction"} confirmed.`
+          : null;
+  const displayedTxMessage = txMessage ?? derivedTxMessage;
 
   const startTx = (action: TxAction) => {
     resetWrite();
@@ -348,7 +335,7 @@ export default function VaultPage() {
                 <div className="flex justify-between mt-1.5">
                   {adapters.map((a, i) => (
                     <span key={a.address} className={`text-[10px] font-mono ${ADAPTER_TEXT_COLORS[i % ADAPTER_TEXT_COLORS.length]}`}>
-                      {shortAddr(a.address)} {a.weightBps / 100}%
+                      Strategy {a.id} {a.weightBps / 100}%
                     </span>
                   ))}
                 </div>
@@ -361,7 +348,7 @@ export default function VaultPage() {
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
                         <div className={`w-2 h-2 rounded-full ${ADAPTER_COLORS[i % ADAPTER_COLORS.length]}`} />
-                        <span className="text-[10px] font-mono text-muted">{shortAddr(a.address)}</span>
+                        <span className="text-[10px] font-mono text-muted">Strategy {a.id} · {shortAddr(a.address)}</span>
                       </div>
                       <span className="text-xs font-mono font-medium">{a.weightBps / 100}%</span>
                     </div>
@@ -399,8 +386,8 @@ export default function VaultPage() {
             </h3>
             <div className="grid grid-cols-3 gap-4">
               {[
-                { label: "Target LTV", value: `${vault?.targetLtv ?? 0}%` },
-                { label: "Loop Count", value: `${vault?.targetLoops ?? 0}x` },
+                { label: "Target LTV", value: `${fmt(weightedTargetLtv, 2)}%` },
+                { label: "Loop Count", value: `${fmt(weightedTargetLoops, 2)}x` },
                 { label: "Idle Buffer", value: `${vault?.targetBuffer ?? 0}%` },
                 { label: "Withdrawal Fee", value: `${vault?.withdrawalFee ?? 0}%` },
                 { label: "Adapters", value: `${adapters.length}` },
@@ -606,7 +593,7 @@ export default function VaultPage() {
                 </div>
               )}
 
-              {(txMessage || txHash) && (
+              {(displayedTxMessage || txHash) && (
                 <div
                   className={`mb-5 rounded-lg border px-4 py-3 text-xs ${
                     txFailed
@@ -616,9 +603,9 @@ export default function VaultPage() {
                         : "border-border bg-surface-2"
                   }`}
                 >
-                  {txMessage && (
+                  {displayedTxMessage && (
                     <div className={txFailed ? "text-danger" : "text-muted"}>
-                      {txMessage}
+                      {displayedTxMessage}
                     </div>
                   )}
                   {txHash && (

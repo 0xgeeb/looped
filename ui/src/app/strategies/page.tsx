@@ -40,12 +40,15 @@ const EVENT_CONFIG: Record<VaultEvent["type"], { label: string; color: string; i
   emergency: { label: "EMERG", color: "text-danger", icon: "!" },
   deploy: { label: "DEPLOY", color: "text-accent", icon: ">" },
   weights: { label: "WEIGHT", color: "text-muted", icon: "=" },
-  migrate: { label: "MIGRATE", color: "text-muted", icon: "<>" },
+  rollover: { label: "ROLL", color: "text-warning", icon: "<" },
+  rollin: { label: "ROLL", color: "text-accent", icon: ">" },
+  strategy: { label: "STRAT", color: "text-muted", icon: "#" },
+  config: { label: "CONFIG", color: "text-muted", icon: "=" },
 };
 
 export default function StrategiesPage() {
   const { vault, isLoading: vaultLoading } = useVaultData();
-  const { adapters } = useAdapterPositions(vault?.adapters ?? []);
+  const { adapters } = useAdapterPositions(vault?.strategyIds ?? [], vault?.lendingRouter);
   const { events, isLoading: eventsLoading } = useVaultEvents();
 
   const isLoading = vaultLoading || eventsLoading;
@@ -105,9 +108,9 @@ export default function StrategiesPage() {
                       {adapter.weightBps / 100}%
                     </div>
                     <div>
-                      <div className="font-semibold font-mono">{shortAddr(adapter.address)}</div>
+                      <div className="font-semibold font-mono">Strategy {adapter.id}</div>
                       <div className="text-xs text-muted">
-                        PT looping adapter
+                        {shortAddr(adapter.address)}
                       </div>
                     </div>
                   </div>

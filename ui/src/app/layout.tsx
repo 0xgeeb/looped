@@ -13,6 +13,7 @@ const NAV_LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/vault", label: "Vault" },
   { href: "/strategies", label: "Strategies" },
+  { href: "/test", label: "Test" },
   { href: "/calculator", label: "Calculator" },
   { href: "/why", label: "Why Looped?" },
 ];
