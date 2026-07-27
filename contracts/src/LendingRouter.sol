@@ -45,6 +45,7 @@ contract LendingRouter is ILendingRouter, Ownable {
         onlyVault
     {
         if (venue == LendingVenue.Aave) {
+            _requireAaveReserveActive(token);
             SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), amount);
             SafeTransferLib.safeApprove(token, lendingMarket, amount);
             IAavePool(lendingMarket).supply(token, amount, address(this), 0);
@@ -65,6 +66,7 @@ contract LendingRouter is ILendingRouter, Ownable {
         onlyVault
     {
         if (venue == LendingVenue.Aave) {
+            _requireAaveReserveActive(token);
             IAavePool(lendingMarket).borrow(token, amount, VARIABLE_RATE, 0, address(this));
             SafeTransferLib.safeTransfer(token, vault, amount);
             return;
@@ -81,6 +83,7 @@ contract LendingRouter is ILendingRouter, Ownable {
         onlyVault
     {
         if (venue == LendingVenue.Aave) {
+            _requireAaveReserveActive(token);
             SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), amount);
             SafeTransferLib.safeApprove(token, lendingMarket, amount);
             IAavePool(lendingMarket).repay(token, amount, VARIABLE_RATE, address(this));
@@ -100,6 +103,7 @@ contract LendingRouter is ILendingRouter, Ownable {
         onlyVault
     {
         if (venue == LendingVenue.Aave) {
+            _requireAaveReserveActive(token);
             IAavePool(lendingMarket).withdraw(token, amount, vault);
             return;
         }
@@ -116,6 +120,7 @@ contract LendingRouter is ILendingRouter, Ownable {
         returns (uint256)
     {
         if (venue == LendingVenue.Aave) {
+            if (!_isAaveReserveActive(token)) return 0;
             (uint256 aTokenBalance,,,,,,,) = aaveDataProvider.getUserReserveData(token, address(this));
             return aTokenBalance;
         }
@@ -132,6 +137,7 @@ contract LendingRouter is ILendingRouter, Ownable {
         returns (uint256)
     {
         if (venue == LendingVenue.Aave) {
+            if (!_isAaveReserveActive(token)) return 0;
             (,, uint256 variableDebt,,,,,) = aaveDataProvider.getUserReserveData(token, address(this));
             return variableDebt;
         }
@@ -160,6 +166,7 @@ contract LendingRouter is ILendingRouter, Ownable {
         returns (uint256)
     {
         if (venue == LendingVenue.Aave) {
+            if (!_isAaveReserveActive(token)) return 0;
             (, uint256 ltv,,,,,,,,) = aaveDataProvider.getReserveConfigurationData(token);
             return ltv;
         }
@@ -181,5 +188,13 @@ contract LendingRouter is ILendingRouter, Ownable {
     function _morphoParams(address lendingMarket) internal view returns (MarketParams memory params) {
         _morphoMarketId(lendingMarket);
         params = morphoMarketParams[lendingMarket];
+    }
+
+    function _requireAaveReserveActive(address token) internal view {
+        if (!_isAaveReserveActive(token)) revert MarketNotConfigured();
+    }
+
+    function _isAaveReserveActive(address token) internal view returns (bool active) {
+        (,,,,,,,, active,) = aaveDataProvider.getReserveConfigurationData(token);
     }
 }

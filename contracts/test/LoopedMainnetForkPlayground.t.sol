@@ -61,17 +61,17 @@ contract LoopedMainnetForkPlaygroundTest is Test {
     function testForkPlayground() public {
         _forkDeployPlayground();
 
-        // console2.log("\n=== CONFIG ===");
-        // console2.log("chain id", block.chainid);
-        // console2.log("block", block.number);
-        // console2.log("asset", asset);
-        // console2.log("pendle market", pendleMarket);
-        // console2.log("lending market", lendingMarket);
-        // console2.log("vault", address(vault));
-        // console2.log("router", address(vault.lendingRouter()));
+        console2.log("\n=== CONFIG ===");
+        console2.log("chain id", block.chainid);
+        console2.log("block", block.number);
+        console2.log("asset", asset);
+        console2.log("pendle market", pendleMarket);
+        console2.log("lending market", lendingMarket);
+        console2.log("vault", address(vault));
+        console2.log("router", address(vault.lendingRouter()));
 
-        // _fundUser(USER_STARTING_ASSETS);
-        // _logState("initial");
+        _fundUser(USER_STARTING_ASSETS);
+        _logState("initial");
 
         // vm.startPrank(user);
         // IERC20Like(asset).approve(address(vault), type(uint256).max);
