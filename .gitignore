@@ -5,6 +5,7 @@ out/
 .env
 .env.local
 .DS_Store
+AGENTS.md
 /.claude
 CLAUDE.md
 TODO.md
