@@ -529,7 +529,6 @@ contract LoopedTest is Test {
             ,
             ,
             ,
-            ,
         ) = vault.strategies(0);
 
         assertFalse(active, "inactive");
