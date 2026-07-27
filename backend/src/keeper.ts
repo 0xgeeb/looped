@@ -21,7 +21,7 @@ const vaultAbi = parseAbi([
   "function minHealthFactor() view returns (uint256)",
   "function paused() view returns (bool)",
   "function getStrategyIds() view returns (uint256[])",
-  "function strategies(uint256) view returns (bool active, uint16 weightBps, uint16 targetLtvBps, uint8 targetLoops, uint8 venue, address lendingMarket, address pendleMarket, address sy, address pt, address yt, address underlying)",
+  "function strategies(uint256) view returns (bool active, uint16 weightBps, uint16 targetLtvBps, uint8 targetLoops, uint8 venue, address lendingMarket, address borrowAsset, address pendleMarket, address sy, address pt, address yt, address underlying)",
   "function getStrategyPosition(uint256 strategyId) view returns (uint256 collateral, uint256 debt, uint256 weightBps)",
   "function lendingRouter() view returns (address)",
   "function asset() view returns (address)",
@@ -204,8 +204,9 @@ const getActiveStrategies = async (): Promise<Strategy[]> => {
       Address,
       Address,
       Address,
+      Address,
     ];
-    const [active, weightBps, , , venue, lendingMarket, pendleMarket] = strategy;
+    const [active, weightBps, , , venue, lendingMarket, , pendleMarket] = strategy;
     const normalizedWeightBps = toNumber(weightBps);
 
     if (active && normalizedWeightBps > 0) {

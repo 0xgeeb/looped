@@ -21,6 +21,7 @@ contract LoopedMainnetForkPlaygroundTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     address constant MAINNET_USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+    address constant MAINNET_USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     address constant MAINNET_AAVE_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
     address constant MAINNET_AAVE_DATA_PROVIDER = 0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3;
     address constant MAINNET_PENDLE_ROUTER = 0x888888888889758F76e7103c6CbF23ABbF58F946;
@@ -48,13 +49,16 @@ contract LoopedMainnetForkPlaygroundTest is Test {
 
     Looped vault;
     address asset;
+    address borrowAsset;
     address pt;
     address pendleMarket;
     address lendingMarket;
     LendingVenue venue;
     string assetSymbol;
+    string borrowAssetSymbol;
     string ptSymbol;
     uint8 assetDecimals;
+    uint8 borrowAssetDecimals;
     uint8 ptDecimals;
     uint8 shareDecimals;
 
@@ -65,6 +69,7 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         console2.log("chain id", block.chainid);
         console2.log("block", block.number);
         console2.log("asset", asset);
+        console2.log("borrow asset", borrowAsset);
         console2.log("pendle market", pendleMarket);
         console2.log("lending market", lendingMarket);
         console2.log("vault", address(vault));
@@ -106,10 +111,12 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         address lendingRouter;
 
         asset = MAINNET_USDC;
+        borrowAsset = MAINNET_USDT;
         pendleRouter = MAINNET_PENDLE_ROUTER;
         pendleOracle = MAINNET_PENDLE_ORACLE;
         pendleMarket = MAINNET_PENDLE_MARKET;
         _assertMainnetContract(asset);
+        _assertMainnetContract(borrowAsset);
         _assertMainnetContract(pendleRouter);
         _assertMainnetContract(pendleOracle);
         _assertMainnetContract(pendleMarket);
@@ -127,11 +134,15 @@ contract LoopedMainnetForkPlaygroundTest is Test {
 
         vault.setLendingRouter(lendingRouter);
         _preparePendleOracle(pendleOracle, pendleMarket);
-        vault.addStrategy(STRATEGY_WEIGHT_BPS, TARGET_LTV_BPS, TARGET_LOOPS, venue, lendingMarket, pendleMarket);
+        vault.addStrategy(
+            STRATEGY_WEIGHT_BPS, TARGET_LTV_BPS, TARGET_LOOPS, venue, lendingMarket, borrowAsset, pendleMarket
+        );
 
         assetSymbol = IERC20Like(asset).symbol();
+        borrowAssetSymbol = IERC20Like(borrowAsset).symbol();
         ptSymbol = IERC20Like(pt).symbol();
         assetDecimals = IERC20Like(asset).decimals();
+        borrowAssetDecimals = IERC20Like(borrowAsset).decimals();
         ptDecimals = IERC20Like(pt).decimals();
         shareDecimals = IERC20Like(address(vault)).decimals();
     }
@@ -166,7 +177,7 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         console2.log("user shares", _formatShares(vault.balanceOf(user)));
         console2.log("user previewRedeem", _formatToken(vault.previewRedeem(vault.balanceOf(user)), assetDecimals, assetSymbol));
         console2.log("strategy collateral", _formatToken(collateral, ptDecimals, ptSymbol));
-        console2.log("strategy debt", _formatToken(debt, assetDecimals, assetSymbol));
+        console2.log("strategy debt", _formatToken(debt, borrowAssetDecimals, borrowAssetSymbol));
         console2.log("strategy weight", _formatBps(weightBps));
         console2.log("strategy health factor", _formatWad(vault.lendingRouter().getHealthFactor(0, venue, lendingMarket)));
         console2.log("strategy max ltv", _formatBps(vault.lendingRouter().getMaxLtv(0, venue, lendingMarket, pt)));

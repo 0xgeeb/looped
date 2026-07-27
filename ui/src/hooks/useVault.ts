@@ -36,6 +36,7 @@ type StrategyConfig = readonly [
   Address,
   Address,
   Address,
+  Address,
 ];
 
 // ── Vault core data ──────────────────────────────────────────────
@@ -184,7 +185,7 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
         address: lendingRouter,
         abi: lendingRouterAbi,
         functionName: "getMaxLtv" as const,
-        args: [BigInt(id), config[4], config[5], config[8]],
+        args: [BigInt(id), config[4], config[5], config[9]],
       },
     ];
   });
@@ -214,17 +215,18 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
 
     return {
       id,
-      address: config?.[6] ?? VAULT_ADDRESS,
+      address: config?.[7] ?? VAULT_ADDRESS,
       active: config?.[0] ?? false,
       targetLtv: config ? Number(config[2]) / 100 : 0,
       targetLoops: config?.[3] ?? 0,
       venue: config?.[4] ?? 0,
       lendingMarket: config?.[5],
-      pendleMarket: config?.[6],
-      sy: config?.[7],
-      pt: config?.[8],
-      yt: config?.[9],
-      underlying: config?.[10],
+      borrowAsset: config?.[6],
+      pendleMarket: config?.[7],
+      sy: config?.[8],
+      pt: config?.[9],
+      yt: config?.[10],
+      underlying: config?.[11],
       ptCollateral: position ? Number(formatUnits(position[0], 18)) : 0,
       debt: position ? Number(formatUnits(position[1], USDC_DECIMALS)) : 0,
       weightBps: position ? Number(position[2]) : 0,

@@ -47,7 +47,7 @@ contract LoopedTest is Test {
         vault.setLendingRouter(address(lendingRouter));
         vault.setStrategist(strategist);
 
-        vault.addStrategy(10000, 7000, 3, LendingVenue.Aave, lendingMarket, address(pendleMarket));
+        vault.addStrategy(10000, 7000, 3, LendingVenue.Aave, lendingMarket, address(usdc), address(pendleMarket));
 
         usdc.mint(alice, INITIAL_BALANCE);
         usdc.mint(bob, INITIAL_BALANCE);
@@ -302,7 +302,7 @@ contract LoopedTest is Test {
     function test_deployIdleSplitsAcrossStrategies() public {
         MockPendleMarket market2 =
             new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
-        vault.addStrategy(0, 7000, 3, LendingVenue.Morpho, makeAddr("market2"), address(market2));
+        vault.addStrategy(0, 7000, 3, LendingVenue.Morpho, makeAddr("market2"), address(usdc), address(market2));
 
         uint256[] memory ids = new uint256[](2);
         uint16[] memory weights = new uint16[](2);
@@ -331,7 +331,7 @@ contract LoopedTest is Test {
 
         assertEq(lendingRouter.collateral(0, address(pt)), 0, "collateral");
         assertEq(lendingRouter.debt(0, address(usdc)), 0, "debt");
-        (,,,,,, address market,,,,) = vault.strategies(0);
+        (,,,,,,, address market,,,,) = vault.strategies(0);
         assertEq(market, address(0), "market cleared");
     }
 
@@ -374,7 +374,7 @@ contract LoopedTest is Test {
         vm.prank(strategist);
         vault.rollInto(0, address(market2));
 
-        (,,,,,, address market,,,,) = vault.strategies(0);
+        (,,,,,,, address market,,,,) = vault.strategies(0);
         assertEq(market, address(market2), "market");
         assertGt(lendingRouter.collateral(0, address(pt)), 0, "new collateral");
         assertGt(lendingRouter.debt(0, address(usdc)), 0, "new debt");
@@ -410,7 +410,7 @@ contract LoopedTest is Test {
             new MockPendleMarket(address(sy), address(0), address(yt), block.timestamp + 30 days);
 
         vm.expectRevert(ILooped.InvalidParams.selector);
-        vault.addStrategy(0, 7000, 3, LendingVenue.Aave, makeAddr("market2"), address(badMarket));
+        vault.addStrategy(0, 7000, 3, LendingVenue.Aave, makeAddr("market2"), address(usdc), address(badMarket));
     }
 
     function test_rollIntoRejectsUnreadyOracle() public {
@@ -429,7 +429,7 @@ contract LoopedTest is Test {
         pendleOracle.setOracleState(false, 0, false);
 
         vm.expectRevert(ILooped.OracleNotReady.selector);
-        vault.addStrategy(0, 7000, 3, LendingVenue.Aave, makeAddr("market2"), address(market2));
+        vault.addStrategy(0, 7000, 3, LendingVenue.Aave, makeAddr("market2"), address(usdc), address(market2));
     }
 
     function test_emergencyDeleverage() public {
@@ -482,7 +482,8 @@ contract LoopedTest is Test {
     function test_addStrategyStoresTargetShape() public {
         MockPendleMarket market2 =
             new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
-        uint256 strategyId = vault.addStrategy(0, 6500, 2, LendingVenue.Morpho, makeAddr("market2"), address(market2));
+        uint256 strategyId =
+            vault.addStrategy(0, 6500, 2, LendingVenue.Morpho, makeAddr("market2"), address(usdc), address(market2));
 
         (
             bool active,
@@ -491,6 +492,7 @@ contract LoopedTest is Test {
             uint8 strategyLoops,
             LendingVenue venue,
             address storedLendingMarket,
+            address borrowAsset,
             address market,
             address strategySy,
             address strategyPt,
@@ -504,6 +506,7 @@ contract LoopedTest is Test {
         assertEq(strategyLoops, 2, "loops");
         assertEq(uint256(venue), uint256(LendingVenue.Morpho), "venue");
         assertEq(storedLendingMarket, makeAddr("market2"), "lending market");
+        assertEq(borrowAsset, address(usdc), "borrow asset");
         assertEq(market, address(market2), "pendle market");
         assertEq(strategySy, address(sy), "sy");
         assertEq(strategyPt, address(pt), "pt");
@@ -512,7 +515,7 @@ contract LoopedTest is Test {
     }
 
     function test_updateStrategy() public {
-        vault.updateStrategy(0, false, 5000, 6500, 2, LendingVenue.Morpho, makeAddr("market2"));
+        vault.updateStrategy(0, false, 5000, 6500, 2, LendingVenue.Morpho, makeAddr("market2"), address(usdc));
 
         (
             bool active,
@@ -521,6 +524,8 @@ contract LoopedTest is Test {
             uint8 strategyLoops,
             LendingVenue venue,
             address storedLendingMarket,
+            address borrowAsset,
+            ,
             ,
             ,
             ,
@@ -533,13 +538,14 @@ contract LoopedTest is Test {
         assertEq(strategyLoops, 2, "loops");
         assertEq(uint256(venue), uint256(LendingVenue.Morpho), "venue");
         assertEq(storedLendingMarket, makeAddr("market2"), "lending market");
+        assertEq(borrowAsset, address(usdc), "borrow asset");
     }
 
     function test_removeStrategyRequiresZeroWeightAndNoPosition() public {
         vm.expectRevert(ILooped.InvalidParams.selector);
         vault.removeStrategy(0);
 
-        vault.updateStrategy(0, false, 0, 7000, 3, LendingVenue.Aave, lendingMarket);
+        vault.updateStrategy(0, false, 0, 7000, 3, LendingVenue.Aave, lendingMarket, address(usdc));
         vault.removeStrategy(0);
 
         assertFalse(vault.isRegisteredStrategy(0), "removed");

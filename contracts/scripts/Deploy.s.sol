@@ -10,6 +10,7 @@ contract Deploy is Script {
     address internal constant USDC = address(0);
     address internal constant AAVE_POOL = address(0);
     address internal constant AAVE_DATA_PROVIDER = address(0);
+    address internal constant BORROW_ASSET = address(0);
     address internal constant PENDLE_ROUTER = address(0);
     address internal constant PENDLE_ORACLE = address(0);
     address internal constant PENDLE_MARKET = address(0);
@@ -26,6 +27,7 @@ contract Deploy is Script {
         address usdc;
         address aavePool;
         address aaveDataProvider;
+        address borrowAsset;
         address pendleRouter;
         address pendleOracle;
         address pendleMarket;
@@ -57,7 +59,13 @@ contract Deploy is Script {
 
         if (config.pendleMarket != address(0)) {
             vault.addStrategy(
-                10000, config.targetLtvBps, config.targetLoops, LendingVenue.Aave, config.aavePool, config.pendleMarket
+                10000,
+                config.targetLtvBps,
+                config.targetLoops,
+                LendingVenue.Aave,
+                config.aavePool,
+                config.borrowAsset,
+                config.pendleMarket
             );
         }
 
@@ -77,6 +85,7 @@ contract Deploy is Script {
         config.usdc = USDC;
         config.aavePool = AAVE_POOL;
         config.aaveDataProvider = AAVE_DATA_PROVIDER;
+        config.borrowAsset = BORROW_ASSET == address(0) ? config.usdc : BORROW_ASSET;
         config.pendleRouter = PENDLE_ROUTER;
         config.pendleOracle = PENDLE_ORACLE;
         config.pendleMarket = PENDLE_MARKET;
@@ -88,6 +97,7 @@ contract Deploy is Script {
         config.minHealthFactor = MIN_HEALTH_FACTOR;
 
         require(config.usdc != address(0), "set USDC");
+        require(config.borrowAsset != address(0), "set BORROW_ASSET");
         require(config.aavePool != address(0), "set AAVE_POOL");
         require(config.aaveDataProvider != address(0), "set AAVE_DATA_PROVIDER");
         require(config.pendleRouter != address(0), "set PENDLE_ROUTER");
@@ -100,6 +110,7 @@ contract Deploy is Script {
         console.log("vault:", vault);
         console.log("lending router:", lendingRouter);
         console.log("asset:", config.usdc);
+        console.log("borrow asset:", config.borrowAsset);
         console.log("pendle router:", config.pendleRouter);
         console.log("pendle oracle:", config.pendleOracle);
         console.log("pendle market:", config.pendleMarket);
@@ -119,6 +130,7 @@ contract Deploy is Script {
         json = vm.serializeAddress(object, "vault", vault);
         json = vm.serializeAddress(object, "lendingRouter", lendingRouter);
         json = vm.serializeAddress(object, "asset", config.usdc);
+        json = vm.serializeAddress(object, "borrowAsset", config.borrowAsset);
         json = vm.serializeAddress(object, "pendleRouter", config.pendleRouter);
         json = vm.serializeAddress(object, "pendleOracle", config.pendleOracle);
         json = vm.serializeAddress(object, "pendleMarket", config.pendleMarket);

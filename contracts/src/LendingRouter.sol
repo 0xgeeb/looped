@@ -47,14 +47,14 @@ contract LendingRouter is ILendingRouter, Ownable {
         if (venue == LendingVenue.Aave) {
             _requireAaveReserveActive(token);
             SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), amount);
-            SafeTransferLib.safeApprove(token, lendingMarket, amount);
+            SafeTransferLib.safeApproveWithRetry(token, lendingMarket, amount);
             IAavePool(lendingMarket).supply(token, amount, address(this), 0);
             return;
         }
         if (venue == LendingVenue.Morpho) {
             MarketParams memory params = _morphoParams(lendingMarket);
             SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), amount);
-            SafeTransferLib.safeApprove(token, address(morpho), amount);
+            SafeTransferLib.safeApproveWithRetry(token, address(morpho), amount);
             morpho.supplyCollateral(params, amount, address(this), "");
             return;
         }
@@ -85,13 +85,13 @@ contract LendingRouter is ILendingRouter, Ownable {
         if (venue == LendingVenue.Aave) {
             _requireAaveReserveActive(token);
             SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), amount);
-            SafeTransferLib.safeApprove(token, lendingMarket, amount);
+            SafeTransferLib.safeApproveWithRetry(token, lendingMarket, amount);
             IAavePool(lendingMarket).repay(token, amount, VARIABLE_RATE, address(this));
             return;
         }
         if (venue == LendingVenue.Morpho) {
             SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), amount);
-            SafeTransferLib.safeApprove(token, address(morpho), amount);
+            SafeTransferLib.safeApproveWithRetry(token, address(morpho), amount);
             morpho.repay(_morphoParams(lendingMarket), amount, 0, address(this), "");
             return;
         }

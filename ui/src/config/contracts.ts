@@ -37,7 +37,7 @@ export const vaultAbi = parseAbi([
   "function strategist() view returns (address)",
   "function getStrategyIds() view returns (uint256[])",
   "function getStrategyPosition(uint256 strategyId) view returns (uint256 col, uint256 dbt, uint256 weightBps)",
-  "function strategies(uint256) view returns (bool active, uint16 weightBps, uint16 targetLtvBps, uint8 targetLoops, uint8 venue, address lendingMarket, address pendleMarket, address sy, address pt, address yt, address underlying)",
+  "function strategies(uint256) view returns (bool active, uint16 weightBps, uint16 targetLtvBps, uint8 targetLoops, uint8 venue, address lendingMarket, address borrowAsset, address pendleMarket, address sy, address pt, address yt, address underlying)",
   "function deposit(uint256 assets, address receiver) returns (uint256)",
   "function withdraw(uint256 assets, address receiver, address owner) returns (uint256)",
   "function redeem(uint256 shares, address receiver, address owner) returns (uint256)",
