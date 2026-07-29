@@ -1,48 +1,40 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import {Test, console2} from "forge-std/Test.sol";
-import {Looped} from "../src/Looped.sol";
-import {LendingRouter} from "../src/LendingRouter.sol";
-import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
-import {IPendleOracle} from "../src/interfaces/IPendleOracle.sol";
-import {IPendleMarket, IPendleSy} from "../src/interfaces/IPendleRouter.sol";
+import { Test, console2 } from "forge-std/Test.sol";
+import { ERC20 } from "../lib/solady/src/tokens/ERC20.sol";
+import { Looped } from "../src/Looped.sol";
+import { LendingRouter } from "../src/LendingRouter.sol";
+import { LendingVenue } from "../src/interfaces/ILendingRouter.sol";
+import { IPendleOracle } from "../src/interfaces/IPendleOracle.sol";
+import { IPendleMarket, IPendleSy } from "../src/interfaces/IPendleRouter.sol";
 
-interface IERC20Like {
-    function approve(address spender, uint256 amount) external returns (bool);
-    function balanceOf(address account) external view returns (uint256);
-    function decimals() external view returns (uint8);
-    function symbol() external view returns (string memory);
-}
 
-contract LoopedMainnetForkPlaygroundTest is Test {
-    /*//////////////////////////////////////////////////////////////
-                         MAINNET ADDRESSES
-    //////////////////////////////////////////////////////////////*/
+contract LoopedForkTest is Test {
 
-    address constant MAINNET_USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-    address constant MAINNET_USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
-    address constant MAINNET_AAVE_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
-    address constant MAINNET_AAVE_DATA_PROVIDER = 0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3;
-    address constant MAINNET_PENDLE_ROUTER = 0x888888888889758F76e7103c6CbF23ABbF58F946;
-    address constant MAINNET_PENDLE_ORACLE = 0x5542be50420E88dd7D5B4a3D488FA6ED82F6DAc2;
-    address constant MAINNET_PENDLE_MARKET = 0x61703e1eA2887fFFD4B5F777bAfD6ABD7122bcF9;
+
+    address USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
+    address AAVEV3Pool = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
+    address MAINNET_AAVE_DATA_PROVIDER = 0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3;
+    address MAINNET_PENDLE_ROUTER = 0x888888888889758F76e7103c6CbF23ABbF58F946;
+    address MAINNET_PENDLE_ORACLE = 0x5542be50420E88dd7D5B4a3D488FA6ED82F6DAc2;
+    address MAINNET_PENDLE_MARKET = 0x66Ec657C59cdcaf171aB43B83da3942758bF8a97;
 
     /*//////////////////////////////////////////////////////////////
                          PLAYGROUND CONFIG
     //////////////////////////////////////////////////////////////*/
 
-    uint256 constant USER_STARTING_ASSETS = 25_000e6;
-    uint256 constant DEPOSIT_ASSETS = 10_000e6;
-    uint256 constant WITHDRAW_ASSETS = 2_500e6;
+    uint256 USER_STARTING_ASSETS = 25_000e6;
+    uint256 DEPOSIT_ASSETS = 10_000e6;
+    uint256 WITHDRAW_ASSETS = 2_500e6;
 
-    uint32 constant TWAP_DURATION = 900;
-    uint16 constant STRATEGY_WEIGHT_BPS = 10_000;
-    uint16 constant TARGET_LTV_BPS = 7_000;
-    uint8 constant TARGET_LOOPS = 3;
-    uint256 constant MIN_HEALTH_FACTOR = 1.15e18;
-    uint8 constant TOKEN_DISPLAY_DECIMALS = 4;
-    uint8 constant SHARE_DISPLAY_DECIMALS = 12;
+    uint32 TWAP_DURATION = 900;
+    uint16 STRATEGY_WEIGHT_BPS = 10_000;
+    uint16 TARGET_LTV_BPS = 7_000;
+    uint8 TARGET_LOOPS = 3;
+    uint256 MIN_HEALTH_FACTOR = 1.15e18;
+    uint8 TOKEN_DISPLAY_DECIMALS = 4;
+    uint8 SHARE_DISPLAY_DECIMALS = 12;
 
     address user = makeAddr("user");
     address strategist = makeAddr("strategist");
@@ -79,7 +71,7 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         _logState("initial");
 
         // vm.startPrank(user);
-        // IERC20Like(asset).approve(address(vault), type(uint256).max);
+        // ERC20(asset).approve(address(vault), type(uint256).max);
         // uint256 shares = vault.deposit(DEPOSIT_ASSETS, user);
         // vm.stopPrank();
 
@@ -110,8 +102,8 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         address pendleOracle;
         address lendingRouter;
 
-        asset = MAINNET_USDC;
-        borrowAsset = MAINNET_USDT;
+        asset = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+        borrowAsset = USDT;
         pendleRouter = MAINNET_PENDLE_ROUTER;
         pendleOracle = MAINNET_PENDLE_ORACLE;
         pendleMarket = MAINNET_PENDLE_MARKET;
@@ -129,7 +121,7 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         vault.setSupportedUnderlying(marketUnderlying, true);
 
         lendingRouter = address(new LendingRouter(address(vault), MAINNET_AAVE_DATA_PROVIDER, address(0)));
-        lendingMarket = MAINNET_AAVE_POOL;
+        lendingMarket = AAVEV3Pool;
         venue = LendingVenue.Aave;
 
         vault.setLendingRouter(lendingRouter);
@@ -138,13 +130,13 @@ contract LoopedMainnetForkPlaygroundTest is Test {
             STRATEGY_WEIGHT_BPS, TARGET_LTV_BPS, TARGET_LOOPS, venue, lendingMarket, borrowAsset, pendleMarket
         );
 
-        assetSymbol = IERC20Like(asset).symbol();
-        borrowAssetSymbol = IERC20Like(borrowAsset).symbol();
-        ptSymbol = IERC20Like(pt).symbol();
-        assetDecimals = IERC20Like(asset).decimals();
-        borrowAssetDecimals = IERC20Like(borrowAsset).decimals();
-        ptDecimals = IERC20Like(pt).decimals();
-        shareDecimals = IERC20Like(address(vault)).decimals();
+        assetSymbol = ERC20(asset).symbol();
+        borrowAssetSymbol = ERC20(borrowAsset).symbol();
+        ptSymbol = ERC20(pt).symbol();
+        assetDecimals = ERC20(asset).decimals();
+        borrowAssetDecimals = ERC20(borrowAsset).decimals();
+        ptDecimals = ERC20(pt).decimals();
+        shareDecimals = ERC20(address(vault)).decimals();
     }
 
     function _preparePendleOracle(address pendleOracle, address market) internal {
@@ -170,10 +162,10 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         console2.log("\n===", label, "===");
         console2.log("vault totalAssets", _formatToken(vault.totalAssets(), assetDecimals, assetSymbol));
         console2.log("vault totalSupply", _formatShares(vault.totalSupply()));
-        console2.log("vault idle asset", _formatToken(IERC20Like(asset).balanceOf(address(vault)), assetDecimals, assetSymbol));
-        console2.log("vault asset balance", _formatToken(IERC20Like(asset).balanceOf(address(vault)), assetDecimals, assetSymbol));
-        console2.log("vault pt balance", _formatToken(IERC20Like(pt).balanceOf(address(vault)), ptDecimals, ptSymbol));
-        console2.log("user asset balance", _formatToken(IERC20Like(asset).balanceOf(user), assetDecimals, assetSymbol));
+        console2.log("vault idle asset", _formatToken(ERC20(asset).balanceOf(address(vault)), assetDecimals, assetSymbol));
+        console2.log("vault asset balance", _formatToken(ERC20(asset).balanceOf(address(vault)), assetDecimals, assetSymbol));
+        console2.log("vault pt balance", _formatToken(ERC20(pt).balanceOf(address(vault)), ptDecimals, ptSymbol));
+        console2.log("user asset balance", _formatToken(ERC20(asset).balanceOf(user), assetDecimals, assetSymbol));
         console2.log("user shares", _formatShares(vault.balanceOf(user)));
         console2.log("user previewRedeem", _formatToken(vault.previewRedeem(vault.balanceOf(user)), assetDecimals, assetSymbol));
         console2.log("strategy collateral", _formatToken(collateral, ptDecimals, ptSymbol));
@@ -183,7 +175,7 @@ contract LoopedMainnetForkPlaygroundTest is Test {
         console2.log("strategy max ltv", _formatBps(vault.lendingRouter().getMaxLtv(0, venue, lendingMarket, pt)));
     }
 
-    function _formatToken(uint256 value, uint8 decimals, string memory symbol) internal pure returns (string memory) {
+    function _formatToken(uint256 value, uint8 decimals, string memory symbol) internal view returns (string memory) {
         return string.concat(_formatFixed(value, decimals, TOKEN_DISPLAY_DECIMALS), " ", symbol);
     }
 
