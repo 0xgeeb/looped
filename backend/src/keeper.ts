@@ -10,6 +10,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
 import { config } from "./config.js";
+import { scrapeYieldz, type YieldzMarket } from "./scraper.js";
 
 const USDC_DECIMALS = 6;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -37,6 +38,7 @@ const lendingRouterAbi = parseAbi([
 
 const erc20Abi = parseAbi([
   "function balanceOf(address) view returns (uint256)",
+  "function symbol() view returns (string)",
 ]);
 
 const pendleMarketAbi = parseAbi([
@@ -59,6 +61,8 @@ const walletClient = createWalletClient({
 
 const timers: NodeJS.Timeout[] = [];
 let running = false;
+let lastRateOptimizationAt = 0;
+const tokenSymbolCache = new Map<Address, string>();
 
 type JobName = "healthCheck" | "deployIdle" | "rollover" | "rateOptimize";
 
@@ -86,9 +90,19 @@ type KeeperStatus = {
 type Strategy = {
   id: bigint;
   weightBps: bigint;
+  targetLtvBps: bigint;
+  targetLoops: number;
   venue: number;
   lendingMarket: Address;
+  borrowAsset: Address;
   pendleMarket: Address;
+  pt: Address;
+};
+
+type RatedStrategy = {
+  strategy: Strategy;
+  market: YieldzMarket;
+  netApyBps: number;
 };
 
 const emptyJobStatus = (): KeeperJobStatus => ({
@@ -125,6 +139,16 @@ const formatError = (err: unknown) => {
 
 const toNumber = (value: number | bigint) =>
   typeof value === "bigint" ? Number(value) : value;
+
+const normalizeMatchText = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const venueName = (venue: number) => {
+  if (venue === 0) return "Aave";
+  if (venue === 1) return "Morpho";
+  return `Venue${venue}`;
+};
+
+const formatBps = (bps: number) => `${(bps / 100).toFixed(2)}%`;
 
 const markJobStarted = (name: JobName) => {
   keeperStatus.jobs[name].lastStartedAt = new Date().toISOString();
@@ -206,21 +230,122 @@ const getActiveStrategies = async (): Promise<Strategy[]> => {
       Address,
       Address,
     ];
-    const [active, weightBps, , , venue, lendingMarket, , pendleMarket] = strategy;
+    const [active, weightBps, targetLtvBps, targetLoops, venue, lendingMarket, borrowAsset, pendleMarket, , pt] = strategy;
     const normalizedWeightBps = toNumber(weightBps);
 
     if (active && normalizedWeightBps > 0) {
       results.push({
         id,
         weightBps: BigInt(normalizedWeightBps),
+        targetLtvBps: BigInt(toNumber(targetLtvBps)),
+        targetLoops: toNumber(targetLoops),
         venue: toNumber(venue),
         lendingMarket,
+        borrowAsset,
         pendleMarket,
+        pt,
       });
     }
   }
 
   return results;
+};
+
+const readTokenSymbol = async (token: Address) => {
+  const cached = tokenSymbolCache.get(token);
+  if (cached) return cached;
+
+  const symbol = await publicClient.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: "symbol",
+  });
+
+  tokenSymbolCache.set(token, symbol);
+  return symbol;
+};
+
+const marketMatchesStrategy = async (market: YieldzMarket, strategy: Strategy) => {
+  if (strategy.pt === ZERO_ADDRESS || strategy.borrowAsset === ZERO_ADDRESS) return false;
+
+  const [ptSymbol, borrowSymbol] = await Promise.all([
+    readTokenSymbol(strategy.pt),
+    readTokenSymbol(strategy.borrowAsset),
+  ]);
+
+  const deposit = normalizeMatchText(market.deposit);
+  const borrow = normalizeMatchText(market.borrow);
+  const protocol = normalizeMatchText(market.protocol);
+  const normalizedPt = normalizeMatchText(ptSymbol);
+  const normalizedBorrow = normalizeMatchText(borrowSymbol);
+  const normalizedVenue = normalizeMatchText(venueName(strategy.venue));
+
+  const venueMatches = !protocol || protocol.includes(normalizedVenue) || normalizedVenue.includes(protocol);
+  const borrowMatches = borrow.includes(normalizedBorrow) || normalizedBorrow.includes(borrow);
+  const depositMatches = deposit.includes(normalizedPt) || normalizedPt.includes(deposit);
+
+  return venueMatches && borrowMatches && depositMatches;
+};
+
+const getRatedStrategies = async (strategies: Strategy[], markets: YieldzMarket[]) => {
+  const safeMarkets = markets.filter(
+    (market) =>
+      Number.isFinite(market.netApy) &&
+      market.netApy > 0 &&
+      market.netApy < 1_000 &&
+      market.risk.toLowerCase() !== "high",
+  );
+  const rated: RatedStrategy[] = [];
+
+  for (const strategy of strategies) {
+    let bestMatch: RatedStrategy | null = null;
+
+    for (const market of safeMarkets) {
+      try {
+        if (await marketMatchesStrategy(market, strategy)) {
+          const candidate = {
+            strategy,
+            market,
+            netApyBps: Math.round(market.netApy * 100),
+          };
+          if (!bestMatch || candidate.netApyBps > bestMatch.netApyBps) {
+            bestMatch = candidate;
+          }
+        }
+      } catch (err) {
+        console.log(`[keeper:rates] strategy ${strategy.id} match failed: ${formatError(err)}`);
+      }
+    }
+
+    if (bestMatch) rated.push(bestMatch);
+  }
+
+  return rated;
+};
+
+const checkRateOptimizationSafety = async (strategies: Strategy[]) => {
+  const minHF = await readVault("minHealthFactor") as bigint;
+  const lendingRouter = await readVault("lendingRouter") as Address;
+
+  for (const strategy of strategies) {
+    const [, debt] = await readVault("getStrategyPosition", [strategy.id]) as readonly [bigint, bigint, bigint];
+    if (debt === 0n) continue;
+
+    const hf = await readLendingRouter(lendingRouter, "getHealthFactor", [
+      strategy.id,
+      strategy.venue,
+      strategy.lendingMarket,
+    ]) as bigint;
+
+    if (hf < minHF) {
+      console.log(
+        `[keeper:rates] skipped: strategy ${strategy.id} HF ${formatUnits(hf, 18)} below minimum ${formatUnits(minHF, 18)}`,
+      );
+      return false;
+    }
+  }
+
+  return true;
 };
 
 const callDeployIdle = async () => {
@@ -243,10 +368,10 @@ const callDeployIdle = async () => {
   }
 };
 
-const callRebalance = async () => {
+const callRebalance = async (job: JobName = "healthCheck") => {
   try {
     if (config.dryRun) {
-      console.log("[keeper:healthCheck] dry run: would call rebalance()");
+      console.log(`[keeper:${job}] dry run: would call rebalance()`);
       return;
     }
 
@@ -256,7 +381,7 @@ const callRebalance = async () => {
       abi: vaultAbi,
       functionName: "rebalance",
     });
-    await waitForHash("healthCheck", hash);
+    await waitForHash(job, hash);
   } catch (err) {
     console.error("[keeper:rebalance] failed:", err);
     throw err;
@@ -379,7 +504,79 @@ const checkMaturedStrategies = async () => {
 };
 
 const checkRateOptimization = async () => {
-  console.log("[keeper:rates] skipped: current contract does not expose strategy rate metrics");
+  const paused = await readVault("paused");
+  if (paused) {
+    console.log("[keeper:rates] vault is paused, skipping");
+    return;
+  }
+
+  const totalAssets = await readVault("totalAssets") as bigint;
+  if (totalAssets === 0n) {
+    console.log("[keeper:rates] skipped: no assets");
+    return;
+  }
+
+  const now = Date.now();
+  const nextAllowedAt = lastRateOptimizationAt + config.migrationCooldownMs;
+  if (lastRateOptimizationAt > 0 && now < nextAllowedAt) {
+    console.log(`[keeper:rates] skipped: cooldown active for ${Math.ceil((nextAllowedAt - now) / 1000)}s`);
+    return;
+  }
+
+  const strategies = await getActiveStrategies();
+  if (strategies.length === 0) {
+    console.log("[keeper:rates] skipped: no active strategies");
+    return;
+  }
+
+  const safeToOptimize = await checkRateOptimizationSafety(strategies);
+  if (!safeToOptimize) return;
+
+  const markets = await scrapeYieldz();
+  if (markets.length === 0) {
+    console.log("[keeper:rates] skipped: no Yieldz markets");
+    return;
+  }
+
+  const rated = await getRatedStrategies(strategies, markets);
+  if (rated.length === 0) {
+    console.log("[keeper:rates] skipped: no Yieldz markets matched active strategies");
+    return;
+  }
+
+  const best = rated.reduce((currentBest, candidate) =>
+    candidate.netApyBps > currentBest.netApyBps ? candidate : currentBest,
+  );
+
+  const totalWeight = rated.reduce((sum, item) => sum + item.strategy.weightBps, 0n);
+  if (totalWeight === 0n) {
+    console.log("[keeper:rates] skipped: matched strategy weight is zero");
+    return;
+  }
+
+  const weightedApyBps = Number(
+    rated.reduce((sum, item) => sum + BigInt(item.netApyBps) * item.strategy.weightBps, 0n) / totalWeight,
+  );
+  const improvementBps = best.netApyBps - weightedApyBps;
+
+  console.log(
+    `[keeper:rates] best strategy ${best.strategy.id} ${best.market.deposit}/${best.market.borrow} ` +
+      `${best.market.protocol} ${best.market.network} APY ${formatBps(best.netApyBps)} | ` +
+      `weighted APY ${formatBps(weightedApyBps)} | improvement ${improvementBps} bps`,
+  );
+
+  if (improvementBps < config.rateImprovementThresholdBps) {
+    console.log(
+      `[keeper:rates] skipped: improvement below threshold ${config.rateImprovementThresholdBps} bps`,
+    );
+    return;
+  }
+
+  console.log(
+    "[keeper:rates] improvement above threshold, calling rebalance to apply configured strategy weights",
+  );
+  await callRebalance("rateOptimize");
+  lastRateOptimizationAt = Date.now();
 };
 
 // ─── Scheduling ──────────────────────────────────────────────
