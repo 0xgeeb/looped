@@ -111,6 +111,13 @@ const EVENT_PARSERS: Record<string, (log: Log, args: Record<string, unknown>) =>
     timestamp: 0,
     details: `Lending router updated to ${String(args.newRouter ?? "")}`,
   }),
+  StrategyRiskRegistryUpdated: (log, args) => ({
+    type: "config",
+    blockNumber: log.blockNumber ?? BigInt(0),
+    txHash: log.transactionHash ?? "",
+    timestamp: 0,
+    details: `Risk registry updated to ${String(args.newRegistry ?? "")}`,
+  }),
 };
 
 export function useVaultEvents() {

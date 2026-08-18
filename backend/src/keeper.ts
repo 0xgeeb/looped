@@ -6,6 +6,7 @@ import {
   type Hash,
   parseAbi,
   formatUnits,
+  zeroAddress,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
@@ -14,6 +15,7 @@ import { scrapeYieldz, type YieldzMarket } from "./scraper.js";
 
 const USDC_DECIMALS = 6;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const YEAR_SECONDS = 31_536_000;
 
 // Minimal ABIs
 const vaultAbi = parseAbi([
@@ -24,7 +26,11 @@ const vaultAbi = parseAbi([
   "function getStrategyIds() view returns (uint256[])",
   "function strategies(uint256) view returns (bool active, uint16 weightBps, uint16 targetLtvBps, uint8 targetLoops, uint8 venue, address lendingMarket, address borrowAsset, address pendleMarket, address sy, address pt, address yt, address underlying)",
   "function getStrategyPosition(uint256 strategyId) view returns (uint256 collateral, uint256 debt, uint256 weightBps)",
+  "function getEffectiveTargetLtvBps(uint256 strategyId) view returns (uint256)",
   "function lendingRouter() view returns (address)",
+  "function pendleOracle() view returns (address)",
+  "function strategyRiskRegistry() view returns (address)",
+  "function twapDuration() view returns (uint32)",
   "function asset() view returns (address)",
   "function strategist() view returns (address)",
   "function deployIdle()",
@@ -34,15 +40,25 @@ const vaultAbi = parseAbi([
 
 const lendingRouterAbi = parseAbi([
   "function getHealthFactor(uint256 strategyId, uint8 venue, address lendingMarket) view returns (uint256)",
+  "function getMaxLtv(uint256 strategyId, uint8 venue, address lendingMarket, address token) view returns (uint256)",
 ]);
 
 const erc20Abi = parseAbi([
   "function balanceOf(address) view returns (uint256)",
   "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
 ]);
 
 const pendleMarketAbi = parseAbi([
   "function expiry() view returns (uint256)",
+]);
+
+const pendleOracleAbi = parseAbi([
+  "function getPtToAssetRate(address market, uint32 duration) view returns (uint256)",
+]);
+
+const strategyRiskRegistryAbi = parseAbi([
+  "function riskConfig(uint256 strategyId) view returns (bool riskEnabled, uint16 maxDiscountRateBps, uint16 ltvCapBps, uint16 ltvBufferBps, uint16 maxOracleDeviationBps, uint16 unwindCostBps, uint16 minPoolProportionBps, uint16 maxPoolProportionBps, uint32 staleAfter, uint64 updatedAt)",
 ]);
 
 const account = privateKeyToAccount(config.privateKey);
@@ -63,6 +79,7 @@ const timers: NodeJS.Timeout[] = [];
 let running = false;
 let lastRateOptimizationAt = 0;
 const tokenSymbolCache = new Map<Address, string>();
+const tokenDecimalsCache = new Map<Address, number>();
 
 type JobName = "healthCheck" | "deployIdle" | "rollover" | "rateOptimize";
 
@@ -103,6 +120,35 @@ type RatedStrategy = {
   strategy: Strategy;
   market: YieldzMarket;
   netApyBps: number;
+  adjustedApyBps: number;
+  safeTargetLtvBps: number;
+  currentLtvBps: number;
+  riskPenaltyBps: number;
+  riskReason: string;
+  maturityDays: number;
+};
+
+type StrategyRiskConfig = {
+  riskEnabled: boolean;
+  maxDiscountRateBps: number;
+  ltvCapBps: number;
+  ltvBufferBps: number;
+  maxOracleDeviationBps: number;
+  unwindCostBps: number;
+  minPoolProportionBps: number;
+  maxPoolProportionBps: number;
+  staleAfter: number;
+  updatedAt: number;
+};
+
+type StrategyRiskScore = {
+  adjustedApyBps: number;
+  safeTargetLtvBps: number;
+  currentLtvBps: number;
+  riskPenaltyBps: number;
+  reason: string;
+  maturityDays: number;
+  skip: boolean;
 };
 
 const emptyJobStatus = (): KeeperJobStatus => ({
@@ -209,6 +255,15 @@ const readLendingRouter = (router: Address, functionName: any, args?: any[]) =>
     args: args as any, // eslint-disable-line @typescript-eslint/no-explicit-any
   });
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const readRiskRegistry = (registry: Address, functionName: any, args?: any[]) =>
+  publicClient.readContract({
+    address: registry,
+    abi: strategyRiskRegistryAbi,
+    functionName,
+    args: args as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+  });
+
 // ─── Helpers ────────────────────────────────────────────────
 
 const getActiveStrategies = async (): Promise<Strategy[]> => {
@@ -265,6 +320,210 @@ const readTokenSymbol = async (token: Address) => {
   return symbol;
 };
 
+const readTokenDecimals = async (token: Address) => {
+  const cached = tokenDecimalsCache.get(token);
+  if (cached !== undefined) return cached;
+
+  const decimals = await publicClient.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: "decimals",
+  });
+
+  tokenDecimalsCache.set(token, decimals);
+  return decimals;
+};
+
+const normalizeTokenAmount = (amount: bigint, decimals: number) => {
+  if (decimals === USDC_DECIMALS) return amount;
+  if (decimals > USDC_DECIMALS) return amount / 10n ** BigInt(decimals - USDC_DECIMALS);
+  return amount * 10n ** BigInt(USDC_DECIMALS - decimals);
+};
+
+const ptToAssetAmount = (ptAmount: bigint, ptRate: bigint, ptDecimals: number) =>
+  ptAmount * ptRate * 10n ** BigInt(USDC_DECIMALS) / 10n ** 18n / 10n ** BigInt(ptDecimals);
+
+const getConfiguredRiskRegistry = async () => {
+  if (config.strategyRiskRegistryAddress !== zeroAddress) return config.strategyRiskRegistryAddress;
+
+  try {
+    return await readVault("strategyRiskRegistry") as Address;
+  } catch {
+    return zeroAddress;
+  }
+};
+
+const readStrategyRiskConfig = async (registry: Address, strategyId: bigint): Promise<StrategyRiskConfig> => {
+  if (registry === zeroAddress) {
+    return {
+      riskEnabled: false,
+      maxDiscountRateBps: 0,
+      ltvCapBps: 0,
+      ltvBufferBps: 0,
+      maxOracleDeviationBps: 0,
+      unwindCostBps: 0,
+      minPoolProportionBps: 0,
+      maxPoolProportionBps: 0,
+      staleAfter: 0,
+      updatedAt: 0,
+    };
+  }
+
+  const raw = await readRiskRegistry(registry, "riskConfig", [strategyId]) as unknown as readonly [
+    boolean,
+    number | bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
+  ];
+
+  const [
+    riskEnabled,
+    maxDiscountRateBps,
+    ltvCapBps,
+    ltvBufferBps,
+    maxOracleDeviationBps,
+    unwindCostBps,
+    minPoolProportionBps,
+    maxPoolProportionBps,
+    staleAfter,
+    updatedAt,
+  ] = raw;
+
+  return {
+    riskEnabled,
+    maxDiscountRateBps: toNumber(maxDiscountRateBps),
+    ltvCapBps: toNumber(ltvCapBps),
+    ltvBufferBps: toNumber(ltvBufferBps),
+    maxOracleDeviationBps: toNumber(maxOracleDeviationBps),
+    unwindCostBps: toNumber(unwindCostBps),
+    minPoolProportionBps: toNumber(minPoolProportionBps),
+    maxPoolProportionBps: toNumber(maxPoolProportionBps),
+    staleAfter: toNumber(staleAfter),
+    updatedAt: toNumber(updatedAt),
+  };
+};
+
+const scoreStrategyRisk = async (
+  strategy: Strategy,
+  market: YieldzMarket,
+  riskRegistry: Address,
+  lendingRouter: Address,
+): Promise<StrategyRiskScore> => {
+  const netApyBps = Math.round(market.netApy * 100);
+  const riskConfig = await readStrategyRiskConfig(riskRegistry, strategy.id);
+  const expiry = await publicClient.readContract({
+    address: strategy.pendleMarket,
+    abi: pendleMarketAbi,
+    functionName: "expiry",
+  });
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const secondsToMaturity = Number(expiry > BigInt(nowSeconds) ? expiry - BigInt(nowSeconds) : 0n);
+  const maturityDays = Math.ceil(secondsToMaturity / 86_400);
+
+  if (secondsToMaturity === 0) {
+    return {
+      adjustedApyBps: Number.NEGATIVE_INFINITY,
+      safeTargetLtvBps: 0,
+      currentLtvBps: 0,
+      riskPenaltyBps: 0,
+      reason: "matured",
+      maturityDays: 0,
+      skip: true,
+    };
+  }
+
+  if (
+    riskConfig.riskEnabled &&
+    riskConfig.staleAfter > 0 &&
+    nowSeconds > riskConfig.updatedAt + riskConfig.staleAfter
+  ) {
+    return {
+      adjustedApyBps: Number.NEGATIVE_INFINITY,
+      safeTargetLtvBps: 0,
+      currentLtvBps: 0,
+      riskPenaltyBps: 0,
+      reason: "risk config stale",
+      maturityDays,
+      skip: true,
+    };
+  }
+
+  const maxVenueLtv = await readLendingRouter(lendingRouter, "getMaxLtv", [
+    strategy.id,
+    strategy.venue,
+    strategy.lendingMarket,
+    strategy.pt,
+  ]) as bigint;
+  const targetLtvBps = Number(strategy.targetLtvBps);
+  let safeTargetLtvBps = Math.min(targetLtvBps, Number(maxVenueLtv));
+
+  if (riskConfig.riskEnabled) {
+    safeTargetLtvBps = Math.min(safeTargetLtvBps, riskConfig.ltvCapBps);
+    safeTargetLtvBps = Math.min(
+      safeTargetLtvBps,
+      Math.max(0, Number(maxVenueLtv) - riskConfig.ltvBufferBps),
+    );
+  }
+
+  if (riskConfig.riskEnabled && safeTargetLtvBps === 0) {
+    return {
+      adjustedApyBps: Number.NEGATIVE_INFINITY,
+      safeTargetLtvBps,
+      currentLtvBps: 0,
+      riskPenaltyBps: 0,
+      reason: "safe target LTV is zero",
+      maturityDays,
+      skip: true,
+    };
+  }
+
+  const [collateral, debt] = await readVault("getStrategyPosition", [strategy.id]) as readonly [bigint, bigint, bigint];
+  let currentLtvBps = 0;
+  if (collateral > 0n && debt > 0n) {
+    const [pendleOracle, twapDuration, ptDecimals, borrowDecimals] = await Promise.all([
+      readVault("pendleOracle") as Promise<Address>,
+      readVault("twapDuration") as Promise<number>,
+      readTokenDecimals(strategy.pt),
+      readTokenDecimals(strategy.borrowAsset),
+    ]);
+    const ptRate = await publicClient.readContract({
+      address: pendleOracle,
+      abi: pendleOracleAbi,
+      functionName: "getPtToAssetRate",
+      args: [strategy.pendleMarket, twapDuration],
+    });
+    const collateralAssets = ptToAssetAmount(collateral, ptRate, ptDecimals);
+    const debtAssets = normalizeTokenAmount(debt, borrowDecimals);
+    currentLtvBps = collateralAssets === 0n ? 0 : Number(debtAssets * 10_000n / collateralAssets);
+  }
+
+  const maturityDiscountPenaltyBps = riskConfig.riskEnabled
+    ? Math.round(riskConfig.maxDiscountRateBps * Math.min(secondsToMaturity, YEAR_SECONDS) / YEAR_SECONDS)
+    : 0;
+  const ltvCompressionPenaltyBps = Math.max(0, targetLtvBps - safeTargetLtvBps) / 10;
+  const riskPenaltyBps = Math.round(
+    (riskConfig.riskEnabled ? riskConfig.unwindCostBps : 0) +
+      maturityDiscountPenaltyBps +
+      ltvCompressionPenaltyBps,
+  );
+
+  return {
+    adjustedApyBps: netApyBps - riskPenaltyBps,
+    safeTargetLtvBps,
+    currentLtvBps,
+    riskPenaltyBps,
+    reason: riskConfig.riskEnabled ? "risk adjusted" : "risk registry disabled",
+    maturityDays,
+    skip: false,
+  };
+};
+
 const marketMatchesStrategy = async (market: YieldzMarket, strategy: Strategy) => {
   if (strategy.pt === ZERO_ADDRESS || strategy.borrowAsset === ZERO_ADDRESS) return false;
 
@@ -296,6 +555,10 @@ const getRatedStrategies = async (strategies: Strategy[], markets: YieldzMarket[
       market.risk.toLowerCase() !== "high",
   );
   const rated: RatedStrategy[] = [];
+  const [riskRegistry, lendingRouter] = await Promise.all([
+    getConfiguredRiskRegistry(),
+    readVault("lendingRouter") as Promise<Address>,
+  ]);
 
   for (const strategy of strategies) {
     let bestMatch: RatedStrategy | null = null;
@@ -303,12 +566,25 @@ const getRatedStrategies = async (strategies: Strategy[], markets: YieldzMarket[
     for (const market of safeMarkets) {
       try {
         if (await marketMatchesStrategy(market, strategy)) {
+          const riskScore = await scoreStrategyRisk(strategy, market, riskRegistry, lendingRouter);
+          if (riskScore.skip) {
+            console.log(
+              `[keeper:rates] strategy ${strategy.id} skipped: ${riskScore.reason} | maturity ${riskScore.maturityDays}d`,
+            );
+            continue;
+          }
           const candidate = {
             strategy,
             market,
             netApyBps: Math.round(market.netApy * 100),
+            adjustedApyBps: riskScore.adjustedApyBps,
+            safeTargetLtvBps: riskScore.safeTargetLtvBps,
+            currentLtvBps: riskScore.currentLtvBps,
+            riskPenaltyBps: riskScore.riskPenaltyBps,
+            riskReason: riskScore.reason,
+            maturityDays: riskScore.maturityDays,
           };
-          if (!bestMatch || candidate.netApyBps > bestMatch.netApyBps) {
+          if (!bestMatch || candidate.adjustedApyBps > bestMatch.adjustedApyBps) {
             bestMatch = candidate;
           }
         }
@@ -545,7 +821,7 @@ const checkRateOptimization = async () => {
   }
 
   const best = rated.reduce((currentBest, candidate) =>
-    candidate.netApyBps > currentBest.netApyBps ? candidate : currentBest,
+    candidate.adjustedApyBps > currentBest.adjustedApyBps ? candidate : currentBest,
   );
 
   const totalWeight = rated.reduce((sum, item) => sum + item.strategy.weightBps, 0n);
@@ -555,14 +831,17 @@ const checkRateOptimization = async () => {
   }
 
   const weightedApyBps = Number(
-    rated.reduce((sum, item) => sum + BigInt(item.netApyBps) * item.strategy.weightBps, 0n) / totalWeight,
+    rated.reduce((sum, item) => sum + BigInt(item.adjustedApyBps) * item.strategy.weightBps, 0n) / totalWeight,
   );
-  const improvementBps = best.netApyBps - weightedApyBps;
+  const improvementBps = best.adjustedApyBps - weightedApyBps;
 
   console.log(
     `[keeper:rates] best strategy ${best.strategy.id} ${best.market.deposit}/${best.market.borrow} ` +
-      `${best.market.protocol} ${best.market.network} APY ${formatBps(best.netApyBps)} | ` +
-      `weighted APY ${formatBps(weightedApyBps)} | improvement ${improvementBps} bps`,
+      `${best.market.protocol} ${best.market.network} raw APY ${formatBps(best.netApyBps)} | ` +
+      `adjusted APY ${formatBps(best.adjustedApyBps)} | weighted adjusted APY ${formatBps(weightedApyBps)} | ` +
+      `risk penalty ${best.riskPenaltyBps} bps | safe LTV ${best.safeTargetLtvBps} bps | ` +
+      `current LTV ${best.currentLtvBps} bps | maturity ${best.maturityDays}d | ${best.riskReason} | ` +
+      `improvement ${improvementBps} bps`,
   );
 
   if (improvementBps < config.rateImprovementThresholdBps) {

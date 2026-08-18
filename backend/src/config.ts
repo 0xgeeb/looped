@@ -7,6 +7,7 @@ export type BackendConfig = {
   rpcUrl: string;
   privateKey: HexPrivateKey;
   vaultAddress: Address;
+  strategyRiskRegistryAddress: Address;
   port: number;
   dryRun: boolean;
   healthCheckInterval: number;
@@ -58,10 +59,19 @@ export const validateConfig = (env: NodeJS.ProcessEnv = process.env): BackendCon
     errors.push("VAULT_ADDRESS must be a non-zero EVM address");
   }
 
+  const strategyRiskRegistryAddress = env.STRATEGY_RISK_REGISTRY_ADDRESS;
+  if (
+    strategyRiskRegistryAddress &&
+    (!isAddress(strategyRiskRegistryAddress) || strategyRiskRegistryAddress === zeroAddress)
+  ) {
+    errors.push("STRATEGY_RISK_REGISTRY_ADDRESS must be a non-zero EVM address");
+  }
+
   const config = {
     rpcUrl: env.RPC_URL || "http://127.0.0.1:8545",
     privateKey: (privateKey ?? "0x") as HexPrivateKey,
     vaultAddress: (vaultAddress ?? zeroAddress) as Address,
+    strategyRiskRegistryAddress: (strategyRiskRegistryAddress ?? zeroAddress) as Address,
     port: readNumber(env, "PORT", 3001, errors),
     dryRun: readBoolean(env, "DRY_RUN", false),
 

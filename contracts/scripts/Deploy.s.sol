@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import {Script, console} from "forge-std/Script.sol";
 import {Looped} from "../src/Looped.sol";
 import {LendingRouter} from "../src/LendingRouter.sol";
+import {StrategyRiskRegistry} from "../src/StrategyRiskRegistry.sol";
 import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
 
 contract Deploy is Script {
@@ -56,6 +57,8 @@ contract Deploy is Script {
 
         LendingRouter lendingRouter = new LendingRouter(address(vault), config.aaveDataProvider, address(0));
         vault.setLendingRouter(address(lendingRouter));
+        StrategyRiskRegistry riskRegistry = new StrategyRiskRegistry(config.owner);
+        vault.setStrategyRiskRegistry(address(riskRegistry));
 
         if (config.pendleMarket != address(0)) {
             vault.addStrategy(
@@ -77,8 +80,8 @@ contract Deploy is Script {
 
         vm.stopBroadcast();
 
-        _printSummary(config, address(vault), address(lendingRouter));
-        _writeSummary(config, address(vault), address(lendingRouter));
+        _printSummary(config, address(vault), address(lendingRouter), address(riskRegistry));
+        _writeSummary(config, address(vault), address(lendingRouter), address(riskRegistry));
     }
 
     function _readConfig() internal view returns (DeployConfig memory config) {
@@ -104,11 +107,15 @@ contract Deploy is Script {
         require(config.pendleOracle != address(0), "set PENDLE_ORACLE");
     }
 
-    function _printSummary(DeployConfig memory config, address vault, address lendingRouter) internal view {
+    function _printSummary(DeployConfig memory config, address vault, address lendingRouter, address riskRegistry)
+        internal
+        view
+    {
         console.log("=== Looped deployment summary ===");
         console.log("chain id:", block.chainid);
         console.log("vault:", vault);
         console.log("lending router:", lendingRouter);
+        console.log("risk registry:", riskRegistry);
         console.log("asset:", config.usdc);
         console.log("borrow asset:", config.borrowAsset);
         console.log("pendle router:", config.pendleRouter);
@@ -124,11 +131,14 @@ contract Deploy is Script {
         console.log("verify: owner, strategist, router, weights, market metadata, pause state, and launch limits");
     }
 
-    function _writeSummary(DeployConfig memory config, address vault, address lendingRouter) internal {
+    function _writeSummary(DeployConfig memory config, address vault, address lendingRouter, address riskRegistry)
+        internal
+    {
         string memory object = "deployment";
         string memory json = vm.serializeUint(object, "chainId", block.chainid);
         json = vm.serializeAddress(object, "vault", vault);
         json = vm.serializeAddress(object, "lendingRouter", lendingRouter);
+        json = vm.serializeAddress(object, "riskRegistry", riskRegistry);
         json = vm.serializeAddress(object, "asset", config.usdc);
         json = vm.serializeAddress(object, "borrowAsset", config.borrowAsset);
         json = vm.serializeAddress(object, "pendleRouter", config.pendleRouter);

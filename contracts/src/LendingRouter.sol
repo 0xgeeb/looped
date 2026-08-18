@@ -4,7 +4,7 @@ pragma solidity ^0.8.34;
 import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IAavePool, IAaveDataProvider} from "./interfaces/IAavePool.sol";
-import {IMorpho, MarketParams, Position} from "./interfaces/IMorpho.sol";
+import {IMorpho, IMorphoOracle, MarketParams, Position} from "./interfaces/IMorpho.sol";
 import {ILendingRouter, LendingVenue} from "./interfaces/ILendingRouter.sol";
 
 /// @title LendingRouter
@@ -15,6 +15,8 @@ contract LendingRouter is ILendingRouter, Ownable {
     IMorpho public immutable morpho;
 
     uint256 internal constant VARIABLE_RATE = 2;
+    uint256 internal constant MORPHO_ORACLE_PRICE_SCALE = 1e36;
+    uint256 internal constant MORPHO_LLTV_SCALE = 1e18;
 
     mapping(address => bytes32) public morphoMarketIds;
     mapping(address => MarketParams) public morphoMarketParams;
@@ -142,11 +144,7 @@ contract LendingRouter is ILendingRouter, Ownable {
             return variableDebt;
         }
         if (venue == LendingVenue.Morpho) {
-            bytes32 marketId = _morphoMarketId(lendingMarket);
-            Position memory pos = morpho.position(marketId, address(this));
-            if (pos.borrowShares == 0) return 0;
-            (,, uint128 totalBorrowAssets, uint128 totalBorrowShares,,) = morpho.market(marketId);
-            return uint256(pos.borrowShares) * uint256(totalBorrowAssets) / uint256(totalBorrowShares);
+            return _morphoDebtAssets(lendingMarket);
         }
         revert UnsupportedVenue();
     }
@@ -156,7 +154,17 @@ contract LendingRouter is ILendingRouter, Ownable {
             (,,,,, uint256 hf) = IAavePool(lendingMarket).getUserAccountData(address(this));
             return hf;
         }
-        if (venue == LendingVenue.Morpho) return type(uint256).max;
+        if (venue == LendingVenue.Morpho) {
+            MarketParams memory params = _morphoParams(lendingMarket);
+            uint256 debt = _morphoDebtAssets(lendingMarket);
+            if (debt == 0) return type(uint256).max;
+
+            Position memory pos = morpho.position(_morphoMarketId(lendingMarket), address(this));
+            uint256 price = IMorphoOracle(params.oracle).price();
+            uint256 collateralValue = uint256(pos.collateral) * price / MORPHO_ORACLE_PRICE_SCALE;
+            uint256 maxBorrowValue = collateralValue * params.lltv / MORPHO_LLTV_SCALE;
+            return maxBorrowValue * 1e18 / debt;
+        }
         revert UnsupportedVenue();
     }
 
@@ -188,6 +196,15 @@ contract LendingRouter is ILendingRouter, Ownable {
     function _morphoParams(address lendingMarket) internal view returns (MarketParams memory params) {
         _morphoMarketId(lendingMarket);
         params = morphoMarketParams[lendingMarket];
+    }
+
+    function _morphoDebtAssets(address lendingMarket) internal view returns (uint256) {
+        bytes32 marketId = _morphoMarketId(lendingMarket);
+        Position memory pos = morpho.position(marketId, address(this));
+        if (pos.borrowShares == 0) return 0;
+        (,, uint128 totalBorrowAssets, uint128 totalBorrowShares,,) = morpho.market(marketId);
+        if (totalBorrowShares == 0) return 0;
+        return uint256(pos.borrowShares) * uint256(totalBorrowAssets) / uint256(totalBorrowShares);
     }
 
     function _requireAaveReserveActive(address token) internal view {

@@ -18,6 +18,7 @@ test("validateConfig accepts required keeper settings", () => {
   assert.equal(config.rpcUrl, validEnv.RPC_URL);
   assert.equal(config.privateKey, validEnv.KEEPER_PRIVATE_KEY);
   assert.equal(config.vaultAddress, validEnv.VAULT_ADDRESS);
+  assert.equal(config.strategyRiskRegistryAddress, "0x0000000000000000000000000000000000000000");
   assert.equal(config.dryRun, false);
 });
 
@@ -39,4 +40,11 @@ test("validateConfig parses dry run flag", () => {
   const config = validateConfig({ ...validEnv, DRY_RUN: "true" });
 
   assert.equal(config.dryRun, true);
+});
+
+test("validateConfig accepts strategy risk registry address", () => {
+  const registry = "0x0000000000000000000000000000000000000002";
+  const config = validateConfig({ ...validEnv, STRATEGY_RISK_REGISTRY_ADDRESS: registry });
+
+  assert.equal(config.strategyRiskRegistryAddress, registry);
 });

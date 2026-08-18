@@ -10,6 +10,7 @@ import {ILooped} from "./interfaces/ILooped.sol";
 import {ILendingRouter, LendingVenue} from "./interfaces/ILendingRouter.sol";
 import {IPendleRouter, IPendleMarket, IPendleSy} from "./interfaces/IPendleRouter.sol";
 import {IPendleOracle} from "./interfaces/IPendleOracle.sol";
+import {IStrategyRiskRegistry, StrategyRiskConfig} from "./interfaces/IStrategyRiskRegistry.sol";
 
 /// @title Looped
 /// @author geeb
@@ -43,6 +44,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     IPendleRouter public pendleRouter;
     IPendleOracle public pendleOracle;
     ILendingRouter public lendingRouter;
+    IStrategyRiskRegistry public strategyRiskRegistry;
     uint32 public twapDuration;
 
     Strategy[] public strategies;
@@ -382,6 +384,11 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         weightBps = strategy.weightBps;
     }
 
+    function getEffectiveTargetLtvBps(uint256 strategyId) external view returns (uint256) {
+        _validateStrategyId(strategyId);
+        return _effectiveTargetLtvBps(strategyId);
+    }
+
     function setStrategist(address _strategist) external onlyOwner {
         strategist = _strategist;
         emit StrategistUpdated(_strategist);
@@ -391,6 +398,11 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         if (_lendingRouter == address(0)) revert InvalidParams();
         lendingRouter = ILendingRouter(_lendingRouter);
         emit LendingRouterUpdated(_lendingRouter);
+    }
+
+    function setStrategyRiskRegistry(address _strategyRiskRegistry) external onlyOwner {
+        strategyRiskRegistry = IStrategyRiskRegistry(_strategyRiskRegistry);
+        emit StrategyRiskRegistryUpdated(_strategyRiskRegistry);
     }
 
     function setTargetBuffer(uint256 _targetBuffer) external onlyOwner {
@@ -444,7 +456,8 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             uint256 dbtAssets = _tokenToAssetAmount(dbt, strategy.borrowAsset);
             uint256 ptRate = pendleOracle.getPtToAssetRate(strategy.pendleMarket, twapDuration);
             uint256 colUsdc = _ptToAsset(ptCol, strategy.pt, ptRate);
-            uint256 targetDebt = colUsdc * strategy.targetLtvBps / 10000;
+            uint256 effectiveTargetLtv = _effectiveTargetLtvBps(strategyId);
+            uint256 targetDebt = colUsdc * effectiveTargetLtv / 10000;
             if (dbtAssets >= targetDebt) break;
 
             uint256 borrowAmt = _assetToTokenAmount(targetDebt - dbtAssets, strategy.borrowAsset);
@@ -490,8 +503,9 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
             uint256 remainingFree = neededUsdc - freed;
             uint256 colUsdc = _ptToAsset(ptCol, strategy.pt, ptRate);
+            uint256 effectiveTargetLtv = _effectiveTargetLtvBps(strategyId);
             uint256 totalWithdrawUsdc =
-                _withdrawAmountForFreeing(remainingFree, colUsdc, dbtAssets, strategy.targetLtvBps);
+                _withdrawAmountForFreeing(remainingFree, colUsdc, dbtAssets, effectiveTargetLtv);
             uint256 maxWithdrawUsdc = _ptToAsset(maxWithdrawPt, strategy.pt, ptRate);
             uint256 withdrawUsdc = totalWithdrawUsdc < maxWithdrawUsdc ? totalWithdrawUsdc : maxWithdrawUsdc;
             uint256 toWithdrawPt = _assetToPt(withdrawUsdc, strategy.pt, ptRate);
@@ -511,7 +525,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
                     withdrawUsdc,
                     colUsdc,
                     dbtAssets,
-                    strategy.targetLtvBps
+                    _effectiveTargetLtvBps(strategyId)
                 );
                 uint256 repayPt = _assetToPt(_min(repayNeeded, withdrawUsdc), strategy.pt, ptRate);
                 if (repayPt > toWithdrawPt) repayPt = toWithdrawPt;
@@ -799,6 +813,27 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     function _decreaseAccountedDebt(uint256 strategyId, uint256 amount) internal {
         uint256 accounted = accountedDebt[strategyId];
         accountedDebt[strategyId] = amount >= accounted ? 0 : accounted - amount;
+    }
+
+    function _effectiveTargetLtvBps(uint256 strategyId) internal view returns (uint256 targetLtv) {
+        Strategy storage strategy = strategies[strategyId];
+        targetLtv = strategy.targetLtvBps;
+
+        IStrategyRiskRegistry registry = strategyRiskRegistry;
+        if (address(registry) == address(0)) return targetLtv;
+
+        StrategyRiskConfig memory config = registry.riskConfig(strategyId);
+        if (!config.riskEnabled) return targetLtv;
+
+        if (config.staleAfter > 0 && block.timestamp > uint256(config.updatedAt) + config.staleAfter) {
+            return 0;
+        }
+
+        targetLtv = _min(targetLtv, config.ltvCapBps);
+        uint256 maxVenueLtv =
+            lendingRouter.getMaxLtv(strategyId, strategy.venue, strategy.lendingMarket, strategy.pt);
+        uint256 bufferedMaxLtv = maxVenueLtv > config.ltvBufferBps ? maxVenueLtv - config.ltvBufferBps : 0;
+        targetLtv = _min(targetLtv, bufferedMaxLtv);
     }
 
     function _min(uint256 a, uint256 b) internal pure returns (uint256) {

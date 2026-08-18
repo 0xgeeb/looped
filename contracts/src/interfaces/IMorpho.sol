@@ -62,3 +62,7 @@ interface IMorpho {
 
     function idToMarketParams(bytes32 id) external view returns (MarketParams memory);
 }
+
+interface IMorphoOracle {
+    function price() external view returns (uint256);
+}
