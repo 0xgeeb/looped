@@ -9,10 +9,13 @@ import {
   vaultAbi,
   erc20Abi,
   lendingRouterAbi,
+  pendleMarketAbi,
+  pendleOracleAbi,
 } from "@/config/contracts";
 
 const USDC_DECIMALS = 6;
 const SHARE_DECIMALS = USDC_DECIMALS + 12;
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as Address;
 
 const parseUsdcAmount = (amount: string) => {
   if (!/^\d*(\.\d*)?$/.test(amount) || amount === "" || amount === ".") return null;
@@ -38,6 +41,21 @@ type StrategyConfig = readonly [
   Address,
   Address,
 ];
+
+const toFormattedNumber = (value: bigint | undefined, decimals: number) =>
+  value === undefined ? 0 : Number(formatUnits(value, decimals));
+
+const normalizeToUsdc = (value: bigint, decimals: number) => {
+  if (decimals === USDC_DECIMALS) return value;
+  if (decimals > USDC_DECIMALS) return value / 10n ** BigInt(decimals - USDC_DECIMALS);
+  return value * 10n ** BigInt(USDC_DECIMALS - decimals);
+};
+
+const ptToAssetAmount = (ptAmount: bigint, ptRate: bigint, ptDecimals: number) =>
+  ptAmount * ptRate * 10n ** BigInt(USDC_DECIMALS) / 10n ** 18n / 10n ** BigInt(ptDecimals);
+
+const isMaxUint = (value: bigint | undefined) =>
+  value === BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
 // ── Vault core data ──────────────────────────────────────────────
 export function useVaultData() {
@@ -161,6 +179,18 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
       functionName: "getStrategyPosition" as const,
       args: [BigInt(id)],
     },
+    {
+      address: VAULT_ADDRESS,
+      abi: vaultAbi,
+      functionName: "getEffectiveTargetLtvBps" as const,
+      args: [BigInt(id)],
+    },
+    {
+      address: VAULT_ADDRESS,
+      abi: vaultAbi,
+      functionName: "strategyCountsInNav" as const,
+      args: [BigInt(id)],
+    },
   ]);
 
   const { data: strategyData, isLoading: strategiesLoading } = useReadContracts({
@@ -170,8 +200,18 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
     },
   });
 
+  const { data: oracleConfig, isLoading: oracleConfigLoading } = useReadContracts({
+    contracts: [
+      { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "pendleOracle" },
+      { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "twapDuration" },
+    ],
+    query: {
+      enabled: isVaultConfigured && strategyIds.length > 0,
+    },
+  });
+
   const routerContracts = strategyIds.flatMap((id, i) => {
-    const config = strategyData?.[i * 2]?.result as StrategyConfig | undefined;
+    const config = strategyData?.[i * 4]?.result as StrategyConfig | undefined;
     if (!config || !lendingRouter) return [];
 
     return [
@@ -190,6 +230,74 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
     ];
   });
 
+  const metadataContracts = strategyIds.flatMap((_, i) => {
+    const config = strategyData?.[i * 4]?.result as StrategyConfig | undefined;
+    if (!config) return [];
+
+    return [
+      {
+        address: config[9],
+        abi: erc20Abi,
+        functionName: "decimals" as const,
+      },
+      {
+        address: config[9],
+        abi: erc20Abi,
+        functionName: "symbol" as const,
+      },
+      {
+        address: config[6],
+        abi: erc20Abi,
+        functionName: "decimals" as const,
+      },
+      {
+        address: config[6],
+        abi: erc20Abi,
+        functionName: "symbol" as const,
+      },
+      {
+        address: config[7],
+        abi: pendleMarketAbi,
+        functionName: "expiry" as const,
+      },
+      {
+        address: config[11],
+        abi: erc20Abi,
+        functionName: "symbol" as const,
+      },
+    ].filter((contract) => contract.address !== ZERO_ADDRESS);
+  });
+
+  const { data: metadataData, isLoading: metadataLoading } = useReadContracts({
+    contracts: metadataContracts,
+    query: {
+      enabled: isVaultConfigured && metadataContracts.length > 0,
+    },
+  });
+
+  const pendleOracle = oracleConfig?.[0]?.result as Address | undefined;
+  const twapDuration = oracleConfig?.[1]?.result as number | undefined;
+  const oracleContracts = strategyIds.flatMap((id, i) => {
+    const config = strategyData?.[i * 4]?.result as StrategyConfig | undefined;
+    if (!config || !pendleOracle || twapDuration === undefined || config[7] === ZERO_ADDRESS) return [];
+
+    return [
+      {
+        address: pendleOracle,
+        abi: pendleOracleAbi,
+        functionName: "getPtToAssetRate" as const,
+        args: [config[7], twapDuration],
+      },
+    ];
+  });
+
+  const { data: oracleData, isLoading: oracleLoading } = useReadContracts({
+    contracts: oracleContracts,
+    query: {
+      enabled: isVaultConfigured && oracleContracts.length > 0,
+    },
+  });
+
   const { data: routerData, isLoading: routerLoading } = useReadContracts({
     contracts: routerContracts,
     query: {
@@ -201,23 +309,56 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
     return { isLoading: false, adapters: [] };
   }
 
-  if (!strategyData || strategiesLoading || routerLoading) {
+  if (!strategyData || strategiesLoading || routerLoading || oracleConfigLoading) {
     return { isLoading: true, adapters: [] };
   }
 
+  if (metadataLoading || oracleLoading) {
+    return { isLoading: true, adapters: [] };
+  }
+
+  let metadataCursor = 0;
+  let oracleCursor = 0;
   const adapters = strategyIds.map((id, i) => {
-    const base = i * 2;
+    const base = i * 4;
     const routerBase = i * 2;
     const config = strategyData[base]?.result as StrategyConfig | undefined;
     const position = strategyData[base + 1]?.result as [bigint, bigint, bigint] | undefined;
+    const effectiveTargetLtvBps = strategyData[base + 2]?.result as bigint | undefined;
+    const countsInNav = (strategyData[base + 3]?.result as boolean | undefined) ?? false;
     const hf = routerData?.[routerBase]?.result as bigint | undefined;
     const maxLtv = routerData?.[routerBase + 1]?.result as bigint | undefined;
+    const hasPt = config?.[9] && config[9] !== ZERO_ADDRESS;
+    const hasBorrowAsset = config?.[6] && config[6] !== ZERO_ADDRESS;
+    const hasMarket = config?.[7] && config[7] !== ZERO_ADDRESS;
+    const hasUnderlying = config?.[11] && config[11] !== ZERO_ADDRESS;
+
+    const ptDecimals = hasPt ? (metadataData?.[metadataCursor++]?.result as number | undefined) : undefined;
+    const ptSymbol = hasPt ? (metadataData?.[metadataCursor++]?.result as string | undefined) : undefined;
+    const borrowDecimals = hasBorrowAsset ? (metadataData?.[metadataCursor++]?.result as number | undefined) : undefined;
+    const borrowSymbol = hasBorrowAsset ? (metadataData?.[metadataCursor++]?.result as string | undefined) : undefined;
+    const expiry = hasMarket ? (metadataData?.[metadataCursor++]?.result as bigint | undefined) : undefined;
+    const underlyingSymbol = hasUnderlying ? (metadataData?.[metadataCursor++]?.result as string | undefined) : undefined;
+    const ptRate = hasMarket && pendleOracle ? (oracleData?.[oracleCursor++]?.result as bigint | undefined) : undefined;
+
+    const ptCollateralRaw = position?.[0] ?? 0n;
+    const debtRaw = position?.[1] ?? 0n;
+    const resolvedPtDecimals = ptDecimals ?? 18;
+    const resolvedBorrowDecimals = borrowDecimals ?? USDC_DECIMALS;
+    const collateralAssetsRaw = ptRate
+      ? ptToAssetAmount(ptCollateralRaw, ptRate, resolvedPtDecimals)
+      : 0n;
+    const debtAssetsRaw = normalizeToUsdc(debtRaw, resolvedBorrowDecimals);
+    const currentLtvBps = collateralAssetsRaw > 0n
+      ? Number(debtAssetsRaw * 10_000n / collateralAssetsRaw)
+      : 0;
 
     return {
       id,
       address: config?.[7] ?? VAULT_ADDRESS,
       active: config?.[0] ?? false,
       targetLtv: config ? Number(config[2]) / 100 : 0,
+      effectiveTargetLtv: effectiveTargetLtvBps ? Number(effectiveTargetLtvBps) / 100 : 0,
       targetLoops: config?.[3] ?? 0,
       venue: config?.[4] ?? 0,
       lendingMarket: config?.[5],
@@ -227,11 +368,31 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
       pt: config?.[9],
       yt: config?.[10],
       underlying: config?.[11],
-      ptCollateral: position ? Number(formatUnits(position[0], 18)) : 0,
-      debt: position ? Number(formatUnits(position[1], USDC_DECIMALS)) : 0,
+      ptSymbol,
+      borrowSymbol,
+      underlyingSymbol,
+      ptDecimals: resolvedPtDecimals,
+      borrowDecimals: resolvedBorrowDecimals,
+      ptCollateral: toFormattedNumber(position?.[0], resolvedPtDecimals),
+      ptCollateralRaw: ptCollateralRaw.toString(),
+      debt: toFormattedNumber(position?.[1], resolvedBorrowDecimals),
+      debtRaw: debtRaw.toString(),
+      collateralAssets: toFormattedNumber(collateralAssetsRaw, USDC_DECIMALS),
+      currentLtv: currentLtvBps / 100,
       weightBps: position ? Number(position[2]) : 0,
-      healthFactor: hf ? Number(formatUnits(hf, 18)) : 0,
+      countsInNav,
+      healthFactor: isMaxUint(hf) ? Number.POSITIVE_INFINITY : hf ? Number(formatUnits(hf, 18)) : 0,
       maxLtv: maxLtv ? Number(maxLtv) / 100 : 0,
+      expiry: expiry ? Number(expiry) : null,
+      ptRate: ptRate ? formatUnits(ptRate, 18) : null,
+      readError: Boolean(
+        strategyData[base]?.error ||
+        strategyData[base + 1]?.error ||
+        strategyData[base + 2]?.error ||
+        strategyData[base + 3]?.error ||
+        routerData?.[routerBase]?.error ||
+        routerData?.[routerBase + 1]?.error
+      ),
     };
   });
 

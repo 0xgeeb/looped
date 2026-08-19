@@ -10,18 +10,29 @@ function fmt(n: number, d = 2) {
   });
 }
 
-function fmtUsd(n: number) {
-  return `$${fmt(n)}`;
-}
-
 function shortAddr(addr: string) {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
 function healthColor(hf: number) {
+  if (!Number.isFinite(hf)) return "text-accent";
   if (hf >= 1.5) return "text-accent";
   if (hf >= 1.2) return "text-warning";
   return "text-danger";
+}
+
+function fmtHealth(hf: number) {
+  if (!Number.isFinite(hf)) return "No debt";
+  return fmt(hf);
+}
+
+function formatDate(ts: number | null) {
+  if (!ts) return "No market";
+  return new Date(ts * 1000).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function formatTimestamp(ts: number) {
@@ -93,7 +104,7 @@ export default function StrategiesPage() {
       {/* Adapter Positions */}
       <section className="mb-10">
         <h2 className="text-sm font-medium text-muted uppercase tracking-wider mb-4">
-          Adapter Positions
+          Strategy Positions
         </h2>
         <div className="grid gap-4 md:grid-cols-2">
           {adapters.map((adapter) => {
@@ -110,7 +121,7 @@ export default function StrategiesPage() {
                     <div>
                       <div className="font-semibold font-mono">Strategy {adapter.id}</div>
                       <div className="text-xs text-muted">
-                        {shortAddr(adapter.address)}
+                        {adapter.ptSymbol ?? "PT"} / {adapter.borrowSymbol ?? "Borrow"}
                       </div>
                     </div>
                   </div>
@@ -136,7 +147,7 @@ export default function StrategiesPage() {
                       Debt
                     </div>
                     <div className="text-sm font-mono font-medium text-danger">
-                      {fmtUsd(adapter.debt)}
+                      {fmt(adapter.debt, 4)} {adapter.borrowSymbol ?? ""}
                     </div>
                   </div>
                   <div className="rounded-lg bg-surface-2 px-3 py-2.5">
@@ -144,17 +155,51 @@ export default function StrategiesPage() {
                       Health
                     </div>
                     <div className={`text-sm font-mono font-medium ${healthColor(adapter.healthFactor)}`}>
-                      {fmt(adapter.healthFactor)}
+                      {fmtHealth(adapter.healthFactor)}
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-surface-2 px-3 py-2.5">
+                    <div className="text-[10px] uppercase text-muted tracking-wider mb-1">
+                      Current LTV
+                    </div>
+                    <div className="text-sm font-mono font-medium">
+                      {fmt(adapter.currentLtv, 2)}%
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-surface-2 px-3 py-2.5">
+                    <div className="text-[10px] uppercase text-muted tracking-wider mb-1">
+                      Target LTV
+                    </div>
+                    <div className="text-sm font-mono font-medium">
+                      {fmt(adapter.effectiveTargetLtv || adapter.targetLtv, 2)}%
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-surface-2 px-3 py-2.5">
+                    <div className="text-[10px] uppercase text-muted tracking-wider mb-1">
+                      Max LTV
+                    </div>
+                    <div className="text-sm font-mono font-medium">
+                      {fmt(adapter.maxLtv, 2)}%
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-3 pt-3 border-t border-border flex justify-between text-xs text-muted">
-                  <span>Weight</span>
-                  <span className="font-mono text-foreground">
-                    {fmt(adapter.weightBps / 100, 2)}%
-                  </span>
+                <div className="mt-3 pt-3 border-t border-border grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-muted">
+                  <StrategyField label="Weight" value={`${fmt(adapter.weightBps / 100, 2)}%`} />
+                  <StrategyField label="NAV" value={adapter.countsInNav ? "Included" : "Excluded"} />
+                  <StrategyField label="Market" value={shortAddr(adapter.pendleMarket ?? adapter.address)} />
+                  <StrategyField label="Lending" value={shortAddr(adapter.lendingMarket ?? adapter.address)} />
+                  <StrategyField label="PT rate" value={adapter.ptRate ?? "Unavailable"} />
+                  <StrategyField label="Maturity" value={formatDate(adapter.expiry)} />
+                  <StrategyField label="Raw PT" value={adapter.ptCollateralRaw} />
+                  <StrategyField label="Raw debt" value={adapter.debtRaw} />
                 </div>
+
+                {adapter.readError && (
+                  <div className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+                    One or more live reads failed for this strategy.
+                  </div>
+                )}
               </div>
             );
           })}
@@ -218,6 +263,15 @@ export default function StrategiesPage() {
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+function StrategyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 justify-between gap-3">
+      <span>{label}</span>
+      <span className="truncate font-mono text-foreground">{value}</span>
     </div>
   );
 }
