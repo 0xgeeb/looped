@@ -344,7 +344,6 @@ contract LoopedTest is Test {
             new MockPendleMarket(address(otherSy), address(pt), address(yt), block.timestamp + 30 days);
 
         vault.setSupportedUnderlying(address(otherUnderlying), true);
-        vm.prank(strategist);
         vault.rollInto(0, address(otherMarket));
 
         vm.prank(alice);
@@ -373,7 +372,6 @@ contract LoopedTest is Test {
         MockPendleMarket market2 =
             new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 60 days);
 
-        vm.prank(strategist);
         vault.rollInto(0, address(market2));
 
         (,,,,,,, address market,,,,) = vault.strategies(0);
@@ -388,7 +386,6 @@ contract LoopedTest is Test {
         MockPendleMarket otherMarket =
             new MockPendleMarket(address(otherSy), address(pt), address(yt), block.timestamp + 30 days);
 
-        vm.prank(strategist);
         vm.expectRevert(ILooped.UnsupportedUnderlying.selector);
         vault.rollInto(0, address(otherMarket));
     }
@@ -396,13 +393,11 @@ contract LoopedTest is Test {
     function test_rollIntoRejectsExpiredMarket() public {
         MockPendleMarket expiredMarket = new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp);
 
-        vm.prank(strategist);
         vm.expectRevert(ILooped.InvalidParams.selector);
         vault.rollInto(0, address(expiredMarket));
     }
 
     function test_rollIntoRejectsMarketWithoutCode() public {
-        vm.prank(strategist);
         vm.expectRevert(ILooped.InvalidParams.selector);
         vault.rollInto(0, makeAddr("notMarket"));
     }
@@ -420,9 +415,37 @@ contract LoopedTest is Test {
             new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
         pendleOracle.setOracleState(true, 32, false);
 
-        vm.prank(strategist);
         vm.expectRevert(ILooped.OracleNotReady.selector);
         vault.rollInto(0, address(market2));
+    }
+
+    function test_strategistCanRollIntoApprovedMarket() public {
+        StrategyRiskRegistry registry = new StrategyRiskRegistry(address(this));
+        vault.setStrategyRiskRegistry(address(registry));
+        _depositAndDeploy(1000e6);
+        MockPendleMarket market2 =
+            new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 60 days);
+        registry.setRolloverMarketApproval(0, address(market2), true);
+
+        vm.warp(block.timestamp + 31 days);
+        vm.prank(strategist);
+        vault.rollIntoApprovedMarket(0, address(market2));
+
+        (,,,,,,, address market,,,,) = vault.strategies(0);
+        assertEq(market, address(market2), "market");
+        assertGt(lendingRouter.collateral(0, address(pt)), 0, "new collateral");
+    }
+
+    function test_strategistCannotRollIntoUnapprovedMarket() public {
+        StrategyRiskRegistry registry = new StrategyRiskRegistry(address(this));
+        vault.setStrategyRiskRegistry(address(registry));
+        MockPendleMarket market2 =
+            new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 60 days);
+
+        vm.warp(block.timestamp + 31 days);
+        vm.prank(strategist);
+        vm.expectRevert(ILooped.InvalidParams.selector);
+        vault.rollIntoApprovedMarket(0, address(market2));
     }
 
     function test_addStrategyRejectsUnreadyOracle() public {

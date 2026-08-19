@@ -241,7 +241,28 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         emit RolledOverToIdle(strategyId, freed);
     }
 
-    function rollInto(uint256 strategyId, address pendleMarket) external onlyStrategist nonReentrant whenNotPaused {
+    function rollInto(uint256 strategyId, address pendleMarket) external onlyOwner nonReentrant whenNotPaused {
+        _rollInto(strategyId, pendleMarket);
+    }
+
+    function rollIntoApprovedMarket(uint256 strategyId, address pendleMarket)
+        external
+        onlyStrategist
+        nonReentrant
+        whenNotPaused
+    {
+        _validateStrategyId(strategyId);
+        Strategy storage strategy = strategies[strategyId];
+        if (strategy.pendleMarket == address(0)) revert NoMarketSet();
+        if (block.timestamp < IPendleMarket(strategy.pendleMarket).expiry()) revert NotMatured();
+
+        IStrategyRiskRegistry registry = strategyRiskRegistry;
+        if (address(registry) == address(0)) revert InvalidParams();
+        if (!registry.approvedRolloverMarket(strategyId, pendleMarket)) revert InvalidParams();
+        _rollInto(strategyId, pendleMarket);
+    }
+
+    function _rollInto(uint256 strategyId, address pendleMarket) internal {
         _validateStrategyId(strategyId);
         Strategy storage strategy = strategies[strategyId];
 

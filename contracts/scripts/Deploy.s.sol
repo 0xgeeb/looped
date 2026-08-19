@@ -16,6 +16,7 @@ contract Deploy is Script {
     address internal constant PENDLE_ROUTER = address(0);
     address internal constant PENDLE_ORACLE = address(0);
     address internal constant PENDLE_MARKET = address(0);
+    address internal constant NEXT_PENDLE_MARKET = address(0);
 
     address internal constant STRATEGIST = address(0);
     address internal constant OWNER = address(0);
@@ -45,6 +46,7 @@ contract Deploy is Script {
         address pendleRouter;
         address pendleOracle;
         address pendleMarket;
+        address nextPendleMarket;
         address strategist;
         address owner;
         uint32 twapDuration;
@@ -114,6 +116,9 @@ contract Deploy is Script {
                     cooldown: config.automationCooldown
                 })
             );
+            if (config.nextPendleMarket != address(0)) {
+                riskRegistry.setRolloverMarketApproval(strategyId, config.nextPendleMarket, true);
+            }
         }
 
         vault.setStrategist(config.strategist);
@@ -137,6 +142,7 @@ contract Deploy is Script {
         config.pendleRouter = PENDLE_ROUTER;
         config.pendleOracle = PENDLE_ORACLE;
         config.pendleMarket = PENDLE_MARKET;
+        config.nextPendleMarket = NEXT_PENDLE_MARKET;
         config.strategist = STRATEGIST == address(0) ? msg.sender : STRATEGIST;
         config.owner = OWNER == address(0) ? msg.sender : OWNER;
         config.twapDuration = TWAP_DURATION;
@@ -179,6 +185,7 @@ contract Deploy is Script {
         console.log("pendle router:", config.pendleRouter);
         console.log("pendle oracle:", config.pendleOracle);
         console.log("pendle market:", config.pendleMarket);
+        console.log("next pendle market:", config.nextPendleMarket);
         console.log("aave pool:", config.aavePool);
         console.log("strategist:", config.strategist);
         console.log("owner:", config.owner);
@@ -207,6 +214,7 @@ contract Deploy is Script {
         json = vm.serializeAddress(object, "pendleRouter", config.pendleRouter);
         json = vm.serializeAddress(object, "pendleOracle", config.pendleOracle);
         json = vm.serializeAddress(object, "pendleMarket", config.pendleMarket);
+        json = vm.serializeAddress(object, "nextPendleMarket", config.nextPendleMarket);
         json = vm.serializeAddress(object, "aavePool", config.aavePool);
         json = vm.serializeAddress(object, "strategist", config.strategist);
         json = vm.serializeAddress(object, "owner", config.owner);

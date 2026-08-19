@@ -28,4 +28,5 @@ struct StrategyAutomationConfig {
 interface IStrategyRiskRegistry {
     function riskConfig(uint256 strategyId) external view returns (StrategyRiskConfig memory);
     function automationConfig(uint256 strategyId) external view returns (StrategyAutomationConfig memory);
+    function approvedRolloverMarket(uint256 strategyId, address pendleMarket) external view returns (bool);
 }

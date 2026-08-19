@@ -96,11 +96,21 @@ This file shows the main function-call flows from deploy, to user deposits, to k
    - staleAfter
    - updatedAt
 
-9. Set keeper wallet.
+9. Approve next rollover markets when known.
+
+   strategyRiskRegistry.setRolloverMarketApproval(
+     strategyId,
+     nextPendleMarket,
+     true
+   )
+
+   This owner action only approves the market. The vault still validates market metadata and oracle readiness when rollover occurs.
+
+10. Set keeper wallet.
 
    vault.setStrategist(strategist)
 
-10. Transfer ownership to governance.
+11. Transfer ownership to governance.
 
    strategyRiskRegistry.transferOwnership(owner)
    vault.transferOwnership(owner)
@@ -312,11 +322,29 @@ This file shows the main function-call flows from deploy, to user deposits, to k
    vault.strategies(strategyId)
    pendleMarket.expiry()
 
+   Backend config supplies candidate next markets:
+
+   APPROVED_ROLLOVER_MARKETS=strategyId:marketAddress
+
 8. If a strategy has matured, keeper calls:
+
+   vault.rollIntoApprovedMarket(strategyId, nextPendleMarket)
+
+   If no approved next market is configured for the keeper, keeper calls:
 
    vault.rolloverToIdle(strategyId)
 
-9. Vault rolls matured strategy to idle.
+9. Vault rolls matured strategy into the next approved market.
+
+   Internal path:
+
+   Looped.rollIntoApprovedMarket(strategyId, nextPendleMarket)
+   StrategyRiskRegistry.approvedRolloverMarket(strategyId, nextPendleMarket)
+   Looped._rollInto(strategyId, nextPendleMarket)
+   Looped._deloopAll(strategyId)
+   Looped._loop(strategyShare, strategyId)
+
+10. If no approved next market exists, vault rolls matured strategy to idle.
 
    Internal path:
 
@@ -435,6 +463,7 @@ The keeper cannot:
 
 - add a new strategy
 - approve a new Pendle market
+- roll into an unapproved Pendle market
 - approve a new lending market
 - change supported underlyings
 - change the lending router
@@ -445,4 +474,3 @@ The keeper cannot:
 - transfer ownership
 - pause or unpause
 - emergency deleverage
-

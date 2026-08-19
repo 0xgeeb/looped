@@ -48,3 +48,10 @@ test("validateConfig accepts strategy risk registry address", () => {
 
   assert.equal(config.strategyRiskRegistryAddress, registry);
 });
+
+test("validateConfig parses approved rollover markets", () => {
+  const market = "0x0000000000000000000000000000000000000002";
+  const config = validateConfig({ ...validEnv, APPROVED_ROLLOVER_MARKETS: `0:${market}` });
+
+  assert.deepEqual(config.approvedRolloverMarkets, { "0": [market] });
+});

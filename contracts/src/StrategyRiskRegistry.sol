@@ -9,6 +9,7 @@ import {StrategyAutomationConfig, StrategyRiskConfig} from "./interfaces/IStrate
 contract StrategyRiskRegistry is Ownable {
     mapping(uint256 => StrategyRiskConfig) public riskConfig;
     mapping(uint256 => StrategyAutomationConfig) public automationConfig;
+    mapping(uint256 => mapping(address => bool)) public approvedRolloverMarket;
 
     error InvalidParams();
 
@@ -32,6 +33,7 @@ contract StrategyRiskRegistry is Ownable {
         uint16 maxLtvChangeBps,
         uint32 cooldown
     );
+    event RolloverMarketApprovalUpdated(uint256 indexed strategyId, address indexed pendleMarket, bool approved);
 
     constructor(address owner_) {
         if (owner_ == address(0)) revert InvalidParams();
@@ -87,4 +89,9 @@ contract StrategyRiskRegistry is Ownable {
         );
     }
 
+    function setRolloverMarketApproval(uint256 strategyId, address pendleMarket, bool approved) external onlyOwner {
+        if (pendleMarket == address(0)) revert InvalidParams();
+        approvedRolloverMarket[strategyId][pendleMarket] = approved;
+        emit RolloverMarketApprovalUpdated(strategyId, pendleMarket, approved);
+    }
 }

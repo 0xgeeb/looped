@@ -37,6 +37,7 @@ const vaultAbi = parseAbi([
   "function deployIdle()",
   "function rebalance()",
   "function rolloverToIdle(uint256 strategyId)",
+  "function rollIntoApprovedMarket(uint256 strategyId, address pendleMarket)",
   "function applyStrategyAutomation(uint256[] strategyIds, uint16[] weights, uint16[] targetLtvBpsValues)",
 ]);
 
@@ -61,6 +62,7 @@ const pendleOracleAbi = parseAbi([
 
 const strategyRiskRegistryAbi = parseAbi([
   "function riskConfig(uint256 strategyId) view returns (bool riskEnabled, uint16 maxDiscountRateBps, uint16 ltvCapBps, uint16 ltvBufferBps, uint16 maxOracleDeviationBps, uint16 unwindCostBps, uint16 minPoolProportionBps, uint16 maxPoolProportionBps, uint32 staleAfter, uint64 updatedAt)",
+  "function approvedRolloverMarket(uint256 strategyId, address pendleMarket) view returns (bool)",
 ]);
 
 const account = privateKeyToAccount(config.privateKey);
@@ -795,6 +797,59 @@ const callRolloverToIdle = async (strategyId: bigint) => {
   }
 };
 
+const callRollIntoApprovedMarket = async (strategyId: bigint, pendleMarket: Address) => {
+  try {
+    if (config.dryRun) {
+      console.log(`[keeper:rollover] dry run: would call rollIntoApprovedMarket(${strategyId}, ${pendleMarket})`);
+      logKeeperEvent({
+        job: "rollover",
+        level: "tx",
+        action: "dry_run",
+        message: "dry run: would roll into approved market",
+        strategyId: strategyId.toString(),
+        data: { pendleMarket },
+      });
+      return;
+    }
+
+    const hash = await walletClient.writeContract({
+      chain: mainnet,
+      address: vault,
+      abi: vaultAbi,
+      functionName: "rollIntoApprovedMarket",
+      args: [strategyId, pendleMarket],
+    });
+    await waitForHash("rollover", hash);
+  } catch (err) {
+    console.error(`[keeper:rollover] failed to roll strategy ${strategyId} into ${pendleMarket}:`, err);
+    throw err;
+  }
+};
+
+const findApprovedRolloverMarket = async (strategyId: bigint) => {
+  const candidates = config.approvedRolloverMarkets[strategyId.toString()] ?? [];
+  if (candidates.length === 0) return null;
+
+  const registry = await getConfiguredRiskRegistry();
+  if (registry === zeroAddress) return null;
+
+  for (const candidate of candidates) {
+    try {
+      const approved = await readRiskRegistry(registry, "approvedRolloverMarket", [
+        strategyId,
+        candidate,
+      ]) as boolean;
+      if (approved) return candidate;
+    } catch (err) {
+      console.log(
+        `[keeper:rollover] approval check failed for strategy ${strategyId} market ${candidate}: ${formatError(err)}`,
+      );
+    }
+  }
+
+  return null;
+};
+
 const callApplyStrategyAutomation = async (strategies: Strategy[], best: RatedStrategy) => {
   const strategyIds = strategies.map((strategy) => strategy.id);
   const weights = strategies.map((strategy) => strategy.id === best.strategy.id ? 10_000 : 0);
@@ -978,18 +1033,29 @@ const checkMaturedStrategies = async () => {
 
       const now = BigInt(Math.floor(Date.now() / 1000));
       if (expiry <= now) {
-        console.log(`[keeper:rollover] strategy ${strategy.id} matured (expiry: ${expiry}), rolling over to idle`);
+        const approvedMarket = await findApprovedRolloverMarket(strategy.id);
+        console.log(
+          `[keeper:rollover] strategy ${strategy.id} matured (expiry: ${expiry}), ` +
+            (approvedMarket ? `rolling into ${approvedMarket}` : "rolling over to idle"),
+        );
         logKeeperEvent({
           job: "rollover",
           level: "info",
           action: "matured",
-          message: "strategy matured and will roll to idle",
+          message: approvedMarket
+            ? "strategy matured and will roll into approved market"
+            : "strategy matured and will roll to idle",
           strategyId: strategy.id.toString(),
           data: {
             expiry: expiry.toString(),
+            approvedMarket,
           },
         });
-        await callRolloverToIdle(strategy.id);
+        if (approvedMarket) {
+          await callRollIntoApprovedMarket(strategy.id, approvedMarket);
+        } else {
+          await callRolloverToIdle(strategy.id);
+        }
       } else {
         logKeeperEvent({
           job: "rollover",

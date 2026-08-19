@@ -36,4 +36,6 @@ interface ILooped {
         uint16[] calldata weights,
         uint16[] calldata targetLtvBpsValues
     ) external;
+
+    function rollIntoApprovedMarket(uint256 strategyId, address pendleMarket) external;
 }
