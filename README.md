@@ -78,12 +78,12 @@ Wallet roles:
 
 Keeper automation:
 
-- Owner governance sets per-strategy automation limits in `StrategyRiskRegistry`.
-- The keeper can call `applyStrategyAutomation()` only inside those limits.
-- The keeper can move weights and target LTV for already configured strategies, then call `rebalance()`.
-- Owner governance can approve next Pendle markets for rollover in `StrategyRiskRegistry`.
-- The keeper can call `rollIntoApprovedMarket()` only for those approved markets.
-- The keeper cannot add unapproved markets or bypass registry caps.
+- During the testing stage, keeper rate optimization is read-only and logs recommendations.
+- Owner governance changes strategy weights and target LTV with vault owner functions.
+- The PT risk article findings stay documented in `docs/article.txt`, `docs/pt-risk-methodology.md`, and `docs/pt-risk-methodology-notes.md`.
+- Revisit bounded strategist-applied weight and LTV automation before production deposits.
+- Keeper maturity handling rolls mature strategies to idle.
+- Owner governance can roll idle capital into the next Pendle market after review.
 
 Before accepting deposits, verify:
 
@@ -91,8 +91,8 @@ Before accepting deposits, verify:
 - Strategist is the intended keeper wallet.
 - Lending router is set.
 - Strategy weights sum to 10000.
-- Automation limits are disabled or set to conservative approved bounds.
-- Next rollover markets are approved only after review, or left unset so matured strategies roll to idle.
+- Keeper rate optimization is read-only unless bounded automation is reviewed and restored.
+- Matured strategies roll to idle before owner-approved market rotation.
 - Pendle market metadata and oracle readiness are valid.
 - Target LTV, loop count, min health factor, buffer, and slippage bounds match the launch plan.
 - Vault is unpaused only after a small-capital rehearsal.

@@ -4,9 +4,7 @@ pragma solidity ^0.8.34;
 import {Script, console} from "forge-std/Script.sol";
 import {Looped} from "../src/Looped.sol";
 import {LendingRouter} from "../src/LendingRouter.sol";
-import {StrategyRiskRegistry} from "../src/StrategyRiskRegistry.sol";
 import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
-import {StrategyAutomationConfig} from "../src/interfaces/IStrategyRiskRegistry.sol";
 
 contract Deploy is Script {
     address internal constant USDC = address(0);
@@ -16,8 +14,6 @@ contract Deploy is Script {
     address internal constant PENDLE_ROUTER = address(0);
     address internal constant PENDLE_ORACLE = address(0);
     address internal constant PENDLE_MARKET = address(0);
-    address internal constant NEXT_PENDLE_MARKET = address(0);
-
     address internal constant STRATEGIST = address(0);
     address internal constant OWNER = address(0);
 
@@ -29,14 +25,6 @@ contract Deploy is Script {
     uint256 internal constant WITHDRAWAL_FEE_BPS = 5;
     uint256 internal constant MAX_SWAP_SLIPPAGE_BPS = 50;
     bool internal constant STRATEGY_COUNTS_IN_NAV = true;
-    bool internal constant AUTOMATION_WEIGHT_ENABLED = false;
-    bool internal constant AUTOMATION_LTV_ENABLED = false;
-    uint16 internal constant AUTOMATION_MAX_WEIGHT_BPS = 10000;
-    uint16 internal constant AUTOMATION_MIN_TARGET_LTV_BPS = 0;
-    uint16 internal constant AUTOMATION_MAX_TARGET_LTV_BPS = 7000;
-    uint16 internal constant AUTOMATION_MAX_WEIGHT_CHANGE_BPS = 10000;
-    uint16 internal constant AUTOMATION_MAX_LTV_CHANGE_BPS = 500;
-    uint32 internal constant AUTOMATION_COOLDOWN = 1 days;
 
     struct DeployConfig {
         address usdc;
@@ -46,7 +34,6 @@ contract Deploy is Script {
         address pendleRouter;
         address pendleOracle;
         address pendleMarket;
-        address nextPendleMarket;
         address strategist;
         address owner;
         uint32 twapDuration;
@@ -58,14 +45,6 @@ contract Deploy is Script {
         uint256 maxSwapSlippageBps;
         address feeRecipient;
         bool strategyCountsInNav;
-        bool automationWeightEnabled;
-        bool automationLtvEnabled;
-        uint16 automationMaxWeightBps;
-        uint16 automationMinTargetLtvBps;
-        uint16 automationMaxTargetLtvBps;
-        uint16 automationMaxWeightChangeBps;
-        uint16 automationMaxLtvChangeBps;
-        uint32 automationCooldown;
     }
 
     function run() external {
@@ -85,8 +64,6 @@ contract Deploy is Script {
 
         LendingRouter lendingRouter = new LendingRouter(address(vault), config.aaveDataProvider, address(0));
         vault.setLendingRouter(address(lendingRouter));
-        StrategyRiskRegistry riskRegistry = new StrategyRiskRegistry(msg.sender);
-        vault.setStrategyRiskRegistry(address(riskRegistry));
         vault.setTargetBuffer(config.targetBufferBps);
         vault.setWithdrawalFeeBps(config.withdrawalFeeBps);
         vault.setFeeRecipient(config.feeRecipient);
@@ -103,35 +80,18 @@ contract Deploy is Script {
                 config.pendleMarket
             );
             vault.setStrategyCountsInNav(strategyId, config.strategyCountsInNav);
-            riskRegistry.setAutomationConfig(
-                strategyId,
-                StrategyAutomationConfig({
-                    weightEnabled: config.automationWeightEnabled,
-                    ltvEnabled: config.automationLtvEnabled,
-                    maxWeightBps: config.automationMaxWeightBps,
-                    minTargetLtvBps: config.automationMinTargetLtvBps,
-                    maxTargetLtvBps: config.automationMaxTargetLtvBps,
-                    maxWeightChangeBps: config.automationMaxWeightChangeBps,
-                    maxLtvChangeBps: config.automationMaxLtvChangeBps,
-                    cooldown: config.automationCooldown
-                })
-            );
-            if (config.nextPendleMarket != address(0)) {
-                riskRegistry.setRolloverMarketApproval(strategyId, config.nextPendleMarket, true);
-            }
         }
 
         vault.setStrategist(config.strategist);
 
         if (config.owner != msg.sender) {
-            riskRegistry.transferOwnership(config.owner);
             vault.transferOwnership(config.owner);
         }
 
         vm.stopBroadcast();
 
-        _printSummary(config, address(vault), address(lendingRouter), address(riskRegistry));
-        _writeSummary(config, address(vault), address(lendingRouter), address(riskRegistry));
+        _printSummary(config, address(vault), address(lendingRouter));
+        _writeSummary(config, address(vault), address(lendingRouter));
     }
 
     function _readConfig() internal view returns (DeployConfig memory config) {
@@ -142,7 +102,6 @@ contract Deploy is Script {
         config.pendleRouter = PENDLE_ROUTER;
         config.pendleOracle = PENDLE_ORACLE;
         config.pendleMarket = PENDLE_MARKET;
-        config.nextPendleMarket = NEXT_PENDLE_MARKET;
         config.strategist = STRATEGIST == address(0) ? msg.sender : STRATEGIST;
         config.owner = OWNER == address(0) ? msg.sender : OWNER;
         config.twapDuration = TWAP_DURATION;
@@ -154,14 +113,6 @@ contract Deploy is Script {
         config.maxSwapSlippageBps = MAX_SWAP_SLIPPAGE_BPS;
         config.feeRecipient = config.owner;
         config.strategyCountsInNav = STRATEGY_COUNTS_IN_NAV;
-        config.automationWeightEnabled = AUTOMATION_WEIGHT_ENABLED;
-        config.automationLtvEnabled = AUTOMATION_LTV_ENABLED;
-        config.automationMaxWeightBps = AUTOMATION_MAX_WEIGHT_BPS;
-        config.automationMinTargetLtvBps = AUTOMATION_MIN_TARGET_LTV_BPS;
-        config.automationMaxTargetLtvBps = AUTOMATION_MAX_TARGET_LTV_BPS;
-        config.automationMaxWeightChangeBps = AUTOMATION_MAX_WEIGHT_CHANGE_BPS;
-        config.automationMaxLtvChangeBps = AUTOMATION_MAX_LTV_CHANGE_BPS;
-        config.automationCooldown = AUTOMATION_COOLDOWN;
 
         require(config.usdc != address(0), "set USDC");
         require(config.borrowAsset != address(0), "set BORROW_ASSET");
@@ -171,21 +122,16 @@ contract Deploy is Script {
         require(config.pendleOracle != address(0), "set PENDLE_ORACLE");
     }
 
-    function _printSummary(DeployConfig memory config, address vault, address lendingRouter, address riskRegistry)
-        internal
-        view
-    {
+    function _printSummary(DeployConfig memory config, address vault, address lendingRouter) internal view {
         console.log("=== Looped deployment summary ===");
         console.log("chain id:", block.chainid);
         console.log("vault:", vault);
         console.log("lending router:", lendingRouter);
-        console.log("risk registry:", riskRegistry);
         console.log("asset:", config.usdc);
         console.log("borrow asset:", config.borrowAsset);
         console.log("pendle router:", config.pendleRouter);
         console.log("pendle oracle:", config.pendleOracle);
         console.log("pendle market:", config.pendleMarket);
-        console.log("next pendle market:", config.nextPendleMarket);
         console.log("aave pool:", config.aavePool);
         console.log("strategist:", config.strategist);
         console.log("owner:", config.owner);
@@ -201,20 +147,16 @@ contract Deploy is Script {
         console.log("verify: owner, strategist, router, weights, market metadata, pause state, and launch limits");
     }
 
-    function _writeSummary(DeployConfig memory config, address vault, address lendingRouter, address riskRegistry)
-        internal
-    {
+    function _writeSummary(DeployConfig memory config, address vault, address lendingRouter) internal {
         string memory object = "deployment";
         string memory json = vm.serializeUint(object, "chainId", block.chainid);
         json = vm.serializeAddress(object, "vault", vault);
         json = vm.serializeAddress(object, "lendingRouter", lendingRouter);
-        json = vm.serializeAddress(object, "riskRegistry", riskRegistry);
         json = vm.serializeAddress(object, "asset", config.usdc);
         json = vm.serializeAddress(object, "borrowAsset", config.borrowAsset);
         json = vm.serializeAddress(object, "pendleRouter", config.pendleRouter);
         json = vm.serializeAddress(object, "pendleOracle", config.pendleOracle);
         json = vm.serializeAddress(object, "pendleMarket", config.pendleMarket);
-        json = vm.serializeAddress(object, "nextPendleMarket", config.nextPendleMarket);
         json = vm.serializeAddress(object, "aavePool", config.aavePool);
         json = vm.serializeAddress(object, "strategist", config.strategist);
         json = vm.serializeAddress(object, "owner", config.owner);

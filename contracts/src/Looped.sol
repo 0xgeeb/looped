@@ -10,7 +10,6 @@ import {ILooped} from "./interfaces/ILooped.sol";
 import {ILendingRouter, LendingVenue} from "./interfaces/ILendingRouter.sol";
 import {IPendleRouter, IPendleMarket, IPendleSy} from "./interfaces/IPendleRouter.sol";
 import {IPendleOracle} from "./interfaces/IPendleOracle.sol";
-import {IStrategyRiskRegistry, StrategyAutomationConfig, StrategyRiskConfig} from "./interfaces/IStrategyRiskRegistry.sol";
 
 /// @title Looped
 /// @author geeb
@@ -44,7 +43,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     IPendleRouter public pendleRouter;
     IPendleOracle public pendleOracle;
     ILendingRouter public lendingRouter;
-    IStrategyRiskRegistry public strategyRiskRegistry;
     uint32 public twapDuration;
 
     Strategy[] public strategies;
@@ -52,7 +50,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     mapping(uint256 => bool) public strategyCountsInNav;
     mapping(uint256 => uint256) public accountedPtCollateral;
     mapping(uint256 => uint256) public accountedDebt;
-    mapping(uint256 => uint256) public lastStrategyAutomationAt;
     mapping(address => bool) public isSupportedUnderlying;
 
     modifier whenNotPaused() {
@@ -245,23 +242,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         _rollInto(strategyId, pendleMarket);
     }
 
-    function rollIntoApprovedMarket(uint256 strategyId, address pendleMarket)
-        external
-        onlyStrategist
-        nonReentrant
-        whenNotPaused
-    {
-        _validateStrategyId(strategyId);
-        Strategy storage strategy = strategies[strategyId];
-        if (strategy.pendleMarket == address(0)) revert NoMarketSet();
-        if (block.timestamp < IPendleMarket(strategy.pendleMarket).expiry()) revert NotMatured();
-
-        IStrategyRiskRegistry registry = strategyRiskRegistry;
-        if (address(registry) == address(0)) revert InvalidParams();
-        if (!registry.approvedRolloverMarket(strategyId, pendleMarket)) revert InvalidParams();
-        _rollInto(strategyId, pendleMarket);
-    }
-
     function _rollInto(uint256 strategyId, address pendleMarket) internal {
         _validateStrategyId(strategyId);
         Strategy storage strategy = strategies[strategyId];
@@ -379,65 +359,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         emit WeightsUpdated();
     }
 
-    function applyStrategyAutomation(
-        uint256[] calldata strategyIds,
-        uint16[] calldata weights,
-        uint16[] calldata targetLtvBpsValues
-    ) external onlyStrategist nonReentrant whenNotPaused {
-        if (strategyIds.length != weights.length || strategyIds.length != targetLtvBpsValues.length) {
-            revert WeightsMismatch();
-        }
-        IStrategyRiskRegistry registry = strategyRiskRegistry;
-        if (address(registry) == address(0)) revert InvalidParams();
-
-        bool[] memory seen = new bool[](strategies.length);
-        uint16[] memory nextWeights = new uint16[](strategies.length);
-        uint16[] memory nextTargetLtvs = new uint16[](strategies.length);
-
-        for (uint256 i = 0; i < strategies.length; i++) {
-            if (!isRegisteredStrategy[i]) continue;
-            Strategy storage strategy = strategies[i];
-            nextWeights[i] = strategy.weightBps;
-            nextTargetLtvs[i] = strategy.targetLtvBps;
-        }
-
-        for (uint256 i = 0; i < strategyIds.length; i++) {
-            uint256 strategyId = strategyIds[i];
-            _validateStrategyId(strategyId);
-            if (seen[strategyId]) revert InvalidParams();
-            seen[strategyId] = true;
-
-            Strategy storage strategy = strategies[strategyId];
-            uint16 nextWeight = weights[i];
-            uint16 nextTargetLtv = targetLtvBpsValues[i];
-            _validateAutomatedStrategyUpdate(strategyId, strategy, nextWeight, nextTargetLtv, registry);
-
-            nextWeights[strategyId] = nextWeight;
-            nextTargetLtvs[strategyId] = nextTargetLtv;
-        }
-
-        uint256 totalWeight = 0;
-        for (uint256 i = 0; i < strategies.length; i++) {
-            if (isRegisteredStrategy[i]) totalWeight += nextWeights[i];
-        }
-        if (totalWeight != 10000) revert InvalidParams();
-
-        for (uint256 i = 0; i < strategyIds.length; i++) {
-            uint256 strategyId = strategyIds[i];
-            Strategy storage strategy = strategies[strategyId];
-            uint16 nextWeight = nextWeights[strategyId];
-            uint16 nextTargetLtv = nextTargetLtvs[strategyId];
-            if (strategy.weightBps != nextWeight || strategy.targetLtvBps != nextTargetLtv) {
-                lastStrategyAutomationAt[strategyId] = block.timestamp;
-            }
-            strategy.weightBps = nextWeight;
-            strategy.targetLtvBps = nextTargetLtv;
-
-            emit StrategyUpdated(strategyId, strategy.active, nextWeight);
-        }
-        emit WeightsUpdated();
-    }
-
     function setStrategyCountsInNav(uint256 strategyId, bool countsInNav) external onlyOwner {
         _validateStrategyId(strategyId);
         strategyCountsInNav[strategyId] = countsInNav;
@@ -465,11 +386,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         weightBps = strategy.weightBps;
     }
 
-    function getEffectiveTargetLtvBps(uint256 strategyId) external view returns (uint256) {
-        _validateStrategyId(strategyId);
-        return _effectiveTargetLtvBps(strategyId);
-    }
-
     function setStrategist(address _strategist) external onlyOwner {
         strategist = _strategist;
         emit StrategistUpdated(_strategist);
@@ -479,11 +395,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         if (_lendingRouter == address(0)) revert InvalidParams();
         lendingRouter = ILendingRouter(_lendingRouter);
         emit LendingRouterUpdated(_lendingRouter);
-    }
-
-    function setStrategyRiskRegistry(address _strategyRiskRegistry) external onlyOwner {
-        strategyRiskRegistry = IStrategyRiskRegistry(_strategyRiskRegistry);
-        emit StrategyRiskRegistryUpdated(_strategyRiskRegistry);
     }
 
     function setTargetBuffer(uint256 _targetBuffer) external onlyOwner {
@@ -537,7 +448,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             uint256 dbtAssets = _tokenToAssetAmount(dbt, strategy.borrowAsset);
             uint256 ptRate = pendleOracle.getPtToAssetRate(strategy.pendleMarket, twapDuration);
             uint256 colUsdc = _ptToAsset(ptCol, strategy.pt, ptRate);
-            uint256 effectiveTargetLtv = _effectiveTargetLtvBps(strategyId);
+            uint256 effectiveTargetLtv = strategy.targetLtvBps;
             uint256 targetDebt = colUsdc * effectiveTargetLtv / 10000;
             if (dbtAssets >= targetDebt) break;
 
@@ -584,7 +495,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
             uint256 remainingFree = neededUsdc - freed;
             uint256 colUsdc = _ptToAsset(ptCol, strategy.pt, ptRate);
-            uint256 effectiveTargetLtv = _effectiveTargetLtvBps(strategyId);
+            uint256 effectiveTargetLtv = strategy.targetLtvBps;
             uint256 totalWithdrawUsdc =
                 _withdrawAmountForFreeing(remainingFree, colUsdc, dbtAssets, effectiveTargetLtv);
             uint256 maxWithdrawUsdc = _ptToAsset(maxWithdrawPt, strategy.pt, ptRate);
@@ -606,7 +517,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
                     withdrawUsdc,
                     colUsdc,
                     dbtAssets,
-                    _effectiveTargetLtvBps(strategyId)
+                    strategy.targetLtvBps
                 );
                 uint256 repayPt = _assetToPt(_min(repayNeeded, withdrawUsdc), strategy.pt, ptRate);
                 if (repayPt > toWithdrawPt) repayPt = toWithdrawPt;
@@ -894,75 +805,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     function _decreaseAccountedDebt(uint256 strategyId, uint256 amount) internal {
         uint256 accounted = accountedDebt[strategyId];
         accountedDebt[strategyId] = amount >= accounted ? 0 : accounted - amount;
-    }
-
-    function _effectiveTargetLtvBps(uint256 strategyId) internal view returns (uint256 targetLtv) {
-        Strategy storage strategy = strategies[strategyId];
-        targetLtv = strategy.targetLtvBps;
-
-        IStrategyRiskRegistry registry = strategyRiskRegistry;
-        if (address(registry) == address(0)) return targetLtv;
-
-        StrategyRiskConfig memory config = registry.riskConfig(strategyId);
-        if (!config.riskEnabled) return targetLtv;
-
-        if (config.staleAfter > 0 && block.timestamp > uint256(config.updatedAt) + config.staleAfter) {
-            return 0;
-        }
-
-        targetLtv = _min(targetLtv, config.ltvCapBps);
-        uint256 maxVenueLtv =
-            lendingRouter.getMaxLtv(strategyId, strategy.venue, strategy.lendingMarket, strategy.pt);
-        uint256 bufferedMaxLtv = maxVenueLtv > config.ltvBufferBps ? maxVenueLtv - config.ltvBufferBps : 0;
-        targetLtv = _min(targetLtv, bufferedMaxLtv);
-    }
-
-    function _validateAutomatedStrategyUpdate(
-        uint256 strategyId,
-        Strategy storage strategy,
-        uint16 nextWeight,
-        uint16 nextTargetLtv,
-        IStrategyRiskRegistry registry
-    ) internal view {
-        StrategyAutomationConfig memory automation = registry.automationConfig(strategyId);
-        StrategyRiskConfig memory risk = registry.riskConfig(strategyId);
-        bool weightChanged = strategy.weightBps != nextWeight;
-        bool ltvChanged = strategy.targetLtvBps != nextTargetLtv;
-
-        if (weightChanged && !automation.weightEnabled) revert InvalidParams();
-        if (ltvChanged && !automation.ltvEnabled) revert InvalidParams();
-        if (nextWeight > automation.maxWeightBps) revert InvalidParams();
-        if (nextTargetLtv < automation.minTargetLtvBps || nextTargetLtv > automation.maxTargetLtvBps) {
-            revert InvalidParams();
-        }
-
-        if (automation.maxWeightChangeBps > 0) {
-            uint256 weightDelta = strategy.weightBps > nextWeight
-                ? strategy.weightBps - nextWeight
-                : nextWeight - strategy.weightBps;
-            if (weightDelta > automation.maxWeightChangeBps) revert InvalidParams();
-        }
-        if (automation.maxLtvChangeBps > 0) {
-            uint256 ltvDelta = strategy.targetLtvBps > nextTargetLtv
-                ? strategy.targetLtvBps - nextTargetLtv
-                : nextTargetLtv - strategy.targetLtvBps;
-            if (ltvDelta > automation.maxLtvChangeBps) revert InvalidParams();
-        }
-        if ((weightChanged || ltvChanged) && automation.cooldown > 0) {
-            uint256 lastUpdatedAt = lastStrategyAutomationAt[strategyId];
-            if (lastUpdatedAt > 0 && block.timestamp < lastUpdatedAt + automation.cooldown) revert InvalidParams();
-        }
-
-        if (risk.riskEnabled) {
-            if (risk.staleAfter > 0 && block.timestamp > uint256(risk.updatedAt) + risk.staleAfter) {
-                if (nextTargetLtv != 0) revert InvalidParams();
-            }
-            if (nextTargetLtv > risk.ltvCapBps) revert InvalidParams();
-            uint256 maxVenueLtv =
-                lendingRouter.getMaxLtv(strategyId, strategy.venue, strategy.lendingMarket, strategy.pt);
-            uint256 bufferedMaxLtv = maxVenueLtv > risk.ltvBufferBps ? maxVenueLtv - risk.ltvBufferBps : 0;
-            if (nextTargetLtv > bufferedMaxLtv) revert InvalidParams();
-        }
     }
 
     function _min(uint256 a, uint256 b) internal pure returns (uint256) {

@@ -7,7 +7,6 @@ export type BackendConfig = {
   rpcUrl: string;
   privateKey: HexPrivateKey;
   vaultAddress: Address;
-  strategyRiskRegistryAddress: Address;
   port: number;
   dryRun: boolean;
   healthCheckInterval: number;
@@ -19,7 +18,6 @@ export type BackendConfig = {
   migrationCooldownMs: number;
   yieldzUrl: string;
   keeperLogPath: string;
-  approvedRolloverMarkets: Record<string, Address[]>;
 };
 
 const PRIVATE_KEY_REGEX = /^0x[0-9a-fA-F]{64}$/;
@@ -48,24 +46,6 @@ const readBoolean = (env: NodeJS.ProcessEnv, key: string, fallback = false) => {
   return ["1", "true", "yes", "on"].includes(raw.toLowerCase());
 };
 
-const readApprovedRolloverMarkets = (env: NodeJS.ProcessEnv, errors: string[]) => {
-  const raw = env.APPROVED_ROLLOVER_MARKETS;
-  const markets: Record<string, Address[]> = {};
-  if (!raw) return markets;
-
-  for (const entry of raw.split(",")) {
-    const [strategyId, market] = entry.split(":").map((part) => part.trim());
-    if (!strategyId || !market || !/^\d+$/.test(strategyId) || !isAddress(market) || market === zeroAddress) {
-      errors.push("APPROVED_ROLLOVER_MARKETS must use strategyId:marketAddress entries");
-      continue;
-    }
-
-    markets[strategyId] = [...(markets[strategyId] ?? []), market as Address];
-  }
-
-  return markets;
-};
-
 export const validateConfig = (env: NodeJS.ProcessEnv = process.env): BackendConfig => {
   const errors: string[] = [];
   const privateKey = env.KEEPER_PRIVATE_KEY;
@@ -79,19 +59,10 @@ export const validateConfig = (env: NodeJS.ProcessEnv = process.env): BackendCon
     errors.push("VAULT_ADDRESS must be a non-zero EVM address");
   }
 
-  const strategyRiskRegistryAddress = env.STRATEGY_RISK_REGISTRY_ADDRESS;
-  if (
-    strategyRiskRegistryAddress &&
-    (!isAddress(strategyRiskRegistryAddress) || strategyRiskRegistryAddress === zeroAddress)
-  ) {
-    errors.push("STRATEGY_RISK_REGISTRY_ADDRESS must be a non-zero EVM address");
-  }
-
   const config = {
     rpcUrl: env.RPC_URL || "http://127.0.0.1:8545",
     privateKey: (privateKey ?? "0x") as HexPrivateKey,
     vaultAddress: (vaultAddress ?? zeroAddress) as Address,
-    strategyRiskRegistryAddress: (strategyRiskRegistryAddress ?? zeroAddress) as Address,
     port: readNumber(env, "PORT", 3001, errors),
     dryRun: readBoolean(env, "DRY_RUN", false),
 
@@ -109,7 +80,6 @@ export const validateConfig = (env: NodeJS.ProcessEnv = process.env): BackendCon
     // Rate scanner
     yieldzUrl: env.YIELDZ_URL || "https://yieldz.io/borrow",
     keeperLogPath: env.KEEPER_LOG_PATH || "data/keeper.log",
-    approvedRolloverMarkets: readApprovedRolloverMarkets(env, errors),
   } satisfies BackendConfig;
 
   if (errors.length > 0) {

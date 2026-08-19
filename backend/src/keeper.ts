@@ -6,7 +6,6 @@ import {
   type Hash,
   parseAbi,
   formatUnits,
-  zeroAddress,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
@@ -16,7 +15,6 @@ import { scrapeYieldz, type YieldzMarket } from "./scraper.js";
 
 const USDC_DECIMALS = 6;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const YEAR_SECONDS = 31_536_000;
 
 // Minimal ABIs
 const vaultAbi = parseAbi([
@@ -27,18 +25,14 @@ const vaultAbi = parseAbi([
   "function getStrategyIds() view returns (uint256[])",
   "function strategies(uint256) view returns (bool active, uint16 weightBps, uint16 targetLtvBps, uint8 targetLoops, uint8 venue, address lendingMarket, address borrowAsset, address pendleMarket, address sy, address pt, address yt, address underlying)",
   "function getStrategyPosition(uint256 strategyId) view returns (uint256 collateral, uint256 debt, uint256 weightBps)",
-  "function getEffectiveTargetLtvBps(uint256 strategyId) view returns (uint256)",
   "function lendingRouter() view returns (address)",
   "function pendleOracle() view returns (address)",
-  "function strategyRiskRegistry() view returns (address)",
   "function twapDuration() view returns (uint32)",
   "function asset() view returns (address)",
   "function strategist() view returns (address)",
   "function deployIdle()",
   "function rebalance()",
   "function rolloverToIdle(uint256 strategyId)",
-  "function rollIntoApprovedMarket(uint256 strategyId, address pendleMarket)",
-  "function applyStrategyAutomation(uint256[] strategyIds, uint16[] weights, uint16[] targetLtvBpsValues)",
 ]);
 
 const lendingRouterAbi = parseAbi([
@@ -58,11 +52,6 @@ const pendleMarketAbi = parseAbi([
 
 const pendleOracleAbi = parseAbi([
   "function getPtToAssetRate(address market, uint32 duration) view returns (uint256)",
-]);
-
-const strategyRiskRegistryAbi = parseAbi([
-  "function riskConfig(uint256 strategyId) view returns (bool riskEnabled, uint16 maxDiscountRateBps, uint16 ltvCapBps, uint16 ltvBufferBps, uint16 maxOracleDeviationBps, uint16 unwindCostBps, uint16 minPoolProportionBps, uint16 maxPoolProportionBps, uint32 staleAfter, uint64 updatedAt)",
-  "function approvedRolloverMarket(uint256 strategyId, address pendleMarket) view returns (bool)",
 ]);
 
 const account = privateKeyToAccount(config.privateKey);
@@ -131,19 +120,6 @@ type RatedStrategy = {
   riskPenaltyBps: number;
   riskReason: string;
   maturityDays: number;
-};
-
-type StrategyRiskConfig = {
-  riskEnabled: boolean;
-  maxDiscountRateBps: number;
-  ltvCapBps: number;
-  ltvBufferBps: number;
-  maxOracleDeviationBps: number;
-  unwindCostBps: number;
-  minPoolProportionBps: number;
-  maxPoolProportionBps: number;
-  staleAfter: number;
-  updatedAt: number;
 };
 
 type StrategyRiskScore = {
@@ -296,15 +272,6 @@ const readLendingRouter = (router: Address, functionName: any, args?: any[]) =>
     args: args as any, // eslint-disable-line @typescript-eslint/no-explicit-any
   });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const readRiskRegistry = (registry: Address, functionName: any, args?: any[]) =>
-  publicClient.readContract({
-    address: registry,
-    abi: strategyRiskRegistryAbi,
-    functionName,
-    args: args as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-  });
-
 // ─── Helpers ────────────────────────────────────────────────
 
 const getActiveStrategies = async (): Promise<Strategy[]> => {
@@ -425,80 +392,12 @@ const normalizeTokenAmount = (amount: bigint, decimals: number) => {
 const ptToAssetAmount = (ptAmount: bigint, ptRate: bigint, ptDecimals: number) =>
   ptAmount * ptRate * 10n ** BigInt(USDC_DECIMALS) / 10n ** 18n / 10n ** BigInt(ptDecimals);
 
-const getConfiguredRiskRegistry = async () => {
-  if (config.strategyRiskRegistryAddress !== zeroAddress) return config.strategyRiskRegistryAddress;
-
-  try {
-    return await readVault("strategyRiskRegistry") as Address;
-  } catch {
-    return zeroAddress;
-  }
-};
-
-const readStrategyRiskConfig = async (registry: Address, strategyId: bigint): Promise<StrategyRiskConfig> => {
-  if (registry === zeroAddress) {
-    return {
-      riskEnabled: false,
-      maxDiscountRateBps: 0,
-      ltvCapBps: 0,
-      ltvBufferBps: 0,
-      maxOracleDeviationBps: 0,
-      unwindCostBps: 0,
-      minPoolProportionBps: 0,
-      maxPoolProportionBps: 0,
-      staleAfter: 0,
-      updatedAt: 0,
-    };
-  }
-
-  const raw = await readRiskRegistry(registry, "riskConfig", [strategyId]) as unknown as readonly [
-    boolean,
-    number | bigint,
-    number | bigint,
-    number | bigint,
-    number | bigint,
-    number | bigint,
-    number | bigint,
-    number | bigint,
-    number | bigint,
-    number | bigint,
-  ];
-
-  const [
-    riskEnabled,
-    maxDiscountRateBps,
-    ltvCapBps,
-    ltvBufferBps,
-    maxOracleDeviationBps,
-    unwindCostBps,
-    minPoolProportionBps,
-    maxPoolProportionBps,
-    staleAfter,
-    updatedAt,
-  ] = raw;
-
-  return {
-    riskEnabled,
-    maxDiscountRateBps: toNumber(maxDiscountRateBps),
-    ltvCapBps: toNumber(ltvCapBps),
-    ltvBufferBps: toNumber(ltvBufferBps),
-    maxOracleDeviationBps: toNumber(maxOracleDeviationBps),
-    unwindCostBps: toNumber(unwindCostBps),
-    minPoolProportionBps: toNumber(minPoolProportionBps),
-    maxPoolProportionBps: toNumber(maxPoolProportionBps),
-    staleAfter: toNumber(staleAfter),
-    updatedAt: toNumber(updatedAt),
-  };
-};
-
 const scoreStrategyRisk = async (
   strategy: Strategy,
   market: YieldzMarket,
-  riskRegistry: Address,
   lendingRouter: Address,
 ): Promise<StrategyRiskScore> => {
   const netApyBps = Math.round(market.netApy * 100);
-  const riskConfig = await readStrategyRiskConfig(riskRegistry, strategy.id);
   const expiry = await publicClient.readContract({
     address: strategy.pendleMarket,
     abi: pendleMarketAbi,
@@ -520,22 +419,6 @@ const scoreStrategyRisk = async (
     };
   }
 
-  if (
-    riskConfig.riskEnabled &&
-    riskConfig.staleAfter > 0 &&
-    nowSeconds > riskConfig.updatedAt + riskConfig.staleAfter
-  ) {
-    return {
-      adjustedApyBps: Number.NEGATIVE_INFINITY,
-      safeTargetLtvBps: 0,
-      currentLtvBps: 0,
-      riskPenaltyBps: 0,
-      reason: "risk config stale",
-      maturityDays,
-      skip: true,
-    };
-  }
-
   const maxVenueLtv = await readLendingRouter(lendingRouter, "getMaxLtv", [
     strategy.id,
     strategy.venue,
@@ -543,27 +426,7 @@ const scoreStrategyRisk = async (
     strategy.pt,
   ]) as bigint;
   const targetLtvBps = Number(strategy.targetLtvBps);
-  let safeTargetLtvBps = Math.min(targetLtvBps, Number(maxVenueLtv));
-
-  if (riskConfig.riskEnabled) {
-    safeTargetLtvBps = Math.min(safeTargetLtvBps, riskConfig.ltvCapBps);
-    safeTargetLtvBps = Math.min(
-      safeTargetLtvBps,
-      Math.max(0, Number(maxVenueLtv) - riskConfig.ltvBufferBps),
-    );
-  }
-
-  if (riskConfig.riskEnabled && safeTargetLtvBps === 0) {
-    return {
-      adjustedApyBps: Number.NEGATIVE_INFINITY,
-      safeTargetLtvBps,
-      currentLtvBps: 0,
-      riskPenaltyBps: 0,
-      reason: "safe target LTV is zero",
-      maturityDays,
-      skip: true,
-    };
-  }
+  const safeTargetLtvBps = Math.min(targetLtvBps, Number(maxVenueLtv));
 
   const [collateral, debt] = await readVault("getStrategyPosition", [strategy.id]) as readonly [bigint, bigint, bigint];
   let currentLtvBps = 0;
@@ -585,22 +448,15 @@ const scoreStrategyRisk = async (
     currentLtvBps = collateralAssets === 0n ? 0 : Number(debtAssets * 10_000n / collateralAssets);
   }
 
-  const maturityDiscountPenaltyBps = riskConfig.riskEnabled
-    ? Math.round(riskConfig.maxDiscountRateBps * Math.min(secondsToMaturity, YEAR_SECONDS) / YEAR_SECONDS)
-    : 0;
   const ltvCompressionPenaltyBps = Math.max(0, targetLtvBps - safeTargetLtvBps) / 10;
-  const riskPenaltyBps = Math.round(
-    (riskConfig.riskEnabled ? riskConfig.unwindCostBps : 0) +
-      maturityDiscountPenaltyBps +
-      ltvCompressionPenaltyBps,
-  );
+  const riskPenaltyBps = Math.round(ltvCompressionPenaltyBps);
 
   return {
     adjustedApyBps: netApyBps - riskPenaltyBps,
     safeTargetLtvBps,
     currentLtvBps,
     riskPenaltyBps,
-    reason: riskConfig.riskEnabled ? "risk adjusted" : "risk registry disabled",
+    reason: "strategy target and venue max LTV",
     maturityDays,
     skip: false,
   };
@@ -637,10 +493,7 @@ const getRatedStrategies = async (strategies: Strategy[], markets: YieldzMarket[
       market.risk.toLowerCase() !== "high",
   );
   const rated: RatedStrategy[] = [];
-  const [riskRegistry, lendingRouter] = await Promise.all([
-    getConfiguredRiskRegistry(),
-    readVault("lendingRouter") as Promise<Address>,
-  ]);
+  const lendingRouter = await readVault("lendingRouter") as Address;
 
   for (const strategy of strategies) {
     let bestMatch: RatedStrategy | null = null;
@@ -648,7 +501,7 @@ const getRatedStrategies = async (strategies: Strategy[], markets: YieldzMarket[
     for (const market of safeMarkets) {
       try {
         if (await marketMatchesStrategy(market, strategy)) {
-          const riskScore = await scoreStrategyRisk(strategy, market, riskRegistry, lendingRouter);
+          const riskScore = await scoreStrategyRisk(strategy, market, lendingRouter);
           if (riskScore.skip) {
             console.log(
               `[keeper:rates] strategy ${strategy.id} skipped: ${riskScore.reason} | maturity ${riskScore.maturityDays}d`,
@@ -797,93 +650,28 @@ const callRolloverToIdle = async (strategyId: bigint) => {
   }
 };
 
-const callRollIntoApprovedMarket = async (strategyId: bigint, pendleMarket: Address) => {
-  try {
-    if (config.dryRun) {
-      console.log(`[keeper:rollover] dry run: would call rollIntoApprovedMarket(${strategyId}, ${pendleMarket})`);
-      logKeeperEvent({
-        job: "rollover",
-        level: "tx",
-        action: "dry_run",
-        message: "dry run: would roll into approved market",
-        strategyId: strategyId.toString(),
-        data: { pendleMarket },
-      });
-      return;
-    }
-
-    const hash = await walletClient.writeContract({
-      chain: mainnet,
-      address: vault,
-      abi: vaultAbi,
-      functionName: "rollIntoApprovedMarket",
-      args: [strategyId, pendleMarket],
-    });
-    await waitForHash("rollover", hash);
-  } catch (err) {
-    console.error(`[keeper:rollover] failed to roll strategy ${strategyId} into ${pendleMarket}:`, err);
-    throw err;
-  }
-};
-
-const findApprovedRolloverMarket = async (strategyId: bigint) => {
-  const candidates = config.approvedRolloverMarkets[strategyId.toString()] ?? [];
-  if (candidates.length === 0) return null;
-
-  const registry = await getConfiguredRiskRegistry();
-  if (registry === zeroAddress) return null;
-
-  for (const candidate of candidates) {
-    try {
-      const approved = await readRiskRegistry(registry, "approvedRolloverMarket", [
-        strategyId,
-        candidate,
-      ]) as boolean;
-      if (approved) return candidate;
-    } catch (err) {
-      console.log(
-        `[keeper:rollover] approval check failed for strategy ${strategyId} market ${candidate}: ${formatError(err)}`,
-      );
-    }
-  }
-
-  return null;
-};
-
-const callApplyStrategyAutomation = async (strategies: Strategy[], best: RatedStrategy) => {
+const logRateRecommendation = (strategies: Strategy[], best: RatedStrategy) => {
   const strategyIds = strategies.map((strategy) => strategy.id);
   const weights = strategies.map((strategy) => strategy.id === best.strategy.id ? 10_000 : 0);
   const targetLtvBpsValues = strategies.map((strategy) =>
     strategy.id === best.strategy.id ? best.safeTargetLtvBps : Number(strategy.targetLtvBps),
   );
 
-  if (config.dryRun) {
-    console.log(
-      `[keeper:rates] dry run: would apply strategy ${best.strategy.id} at 10000 bps and target LTV ${best.safeTargetLtvBps} bps`,
-    );
-    logKeeperEvent({
-      job: "rateOptimize",
-      level: "tx",
-      action: "dry_run",
-      message: "dry run: would apply strategy automation",
-      strategyId: best.strategy.id.toString(),
-      data: {
-        strategyIds: strategyIds.map((id) => id.toString()),
-        weights,
-        targetLtvBpsValues,
-      },
-    });
-    return;
-  }
-
-  const hash = await walletClient.writeContract({
-    chain: mainnet,
-    address: vault,
-    abi: vaultAbi,
-    functionName: "applyStrategyAutomation",
-    args: [strategyIds, weights, targetLtvBpsValues],
+  console.log(
+    `[keeper:rates] recommendation: set strategy ${best.strategy.id} to 10000 bps and target LTV ${best.safeTargetLtvBps} bps`,
+  );
+  logKeeperEvent({
+    job: "rateOptimize",
+    level: "info",
+    action: "recommendation",
+    message: "rate improvement is above threshold; owner action required",
+    strategyId: best.strategy.id.toString(),
+    data: {
+      strategyIds: strategyIds.map((id) => id.toString()),
+      weights,
+      targetLtvBpsValues,
+    },
   });
-  await waitForHash("rateOptimize", hash);
 };
 
 // ─── Jobs ────────────────────────────────────────────────────
@@ -1033,29 +821,18 @@ const checkMaturedStrategies = async () => {
 
       const now = BigInt(Math.floor(Date.now() / 1000));
       if (expiry <= now) {
-        const approvedMarket = await findApprovedRolloverMarket(strategy.id);
-        console.log(
-          `[keeper:rollover] strategy ${strategy.id} matured (expiry: ${expiry}), ` +
-            (approvedMarket ? `rolling into ${approvedMarket}` : "rolling over to idle"),
-        );
+        console.log(`[keeper:rollover] strategy ${strategy.id} matured (expiry: ${expiry}), rolling over to idle`);
         logKeeperEvent({
           job: "rollover",
           level: "info",
           action: "matured",
-          message: approvedMarket
-            ? "strategy matured and will roll into approved market"
-            : "strategy matured and will roll to idle",
+          message: "strategy matured and will roll to idle",
           strategyId: strategy.id.toString(),
           data: {
             expiry: expiry.toString(),
-            approvedMarket,
           },
         });
-        if (approvedMarket) {
-          await callRollIntoApprovedMarket(strategy.id, approvedMarket);
-        } else {
-          await callRolloverToIdle(strategy.id);
-        }
+        await callRolloverToIdle(strategy.id);
       } else {
         logKeeperEvent({
           job: "rollover",
@@ -1218,10 +995,7 @@ const checkRateOptimization = async () => {
     return;
   }
 
-  console.log("[keeper:rates] improvement above threshold, applying approved strategy automation");
-  await callApplyStrategyAutomation(strategies, best);
-  console.log("[keeper:rates] calling rebalance after approved strategy update");
-  await callRebalance("rateOptimize");
+  logRateRecommendation(strategies, best);
   lastRateOptimizationAt = Date.now();
 };
 

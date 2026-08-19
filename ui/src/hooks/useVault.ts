@@ -182,12 +182,6 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
     {
       address: VAULT_ADDRESS,
       abi: vaultAbi,
-      functionName: "getEffectiveTargetLtvBps" as const,
-      args: [BigInt(id)],
-    },
-    {
-      address: VAULT_ADDRESS,
-      abi: vaultAbi,
       functionName: "strategyCountsInNav" as const,
       args: [BigInt(id)],
     },
@@ -211,7 +205,7 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
   });
 
   const routerContracts = strategyIds.flatMap((id, i) => {
-    const config = strategyData?.[i * 4]?.result as StrategyConfig | undefined;
+    const config = strategyData?.[i * 3]?.result as StrategyConfig | undefined;
     if (!config || !lendingRouter) return [];
 
     return [
@@ -231,7 +225,7 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
   });
 
   const metadataContracts = strategyIds.flatMap((_, i) => {
-    const config = strategyData?.[i * 4]?.result as StrategyConfig | undefined;
+    const config = strategyData?.[i * 3]?.result as StrategyConfig | undefined;
     if (!config) return [];
 
     return [
@@ -278,7 +272,7 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
   const pendleOracle = oracleConfig?.[0]?.result as Address | undefined;
   const twapDuration = oracleConfig?.[1]?.result as number | undefined;
   const oracleContracts = strategyIds.flatMap((id, i) => {
-    const config = strategyData?.[i * 4]?.result as StrategyConfig | undefined;
+    const config = strategyData?.[i * 3]?.result as StrategyConfig | undefined;
     if (!config || !pendleOracle || twapDuration === undefined || config[7] === ZERO_ADDRESS) return [];
 
     return [
@@ -320,12 +314,11 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
   let metadataCursor = 0;
   let oracleCursor = 0;
   const adapters = strategyIds.map((id, i) => {
-    const base = i * 4;
+    const base = i * 3;
     const routerBase = i * 2;
     const config = strategyData[base]?.result as StrategyConfig | undefined;
     const position = strategyData[base + 1]?.result as [bigint, bigint, bigint] | undefined;
-    const effectiveTargetLtvBps = strategyData[base + 2]?.result as bigint | undefined;
-    const countsInNav = (strategyData[base + 3]?.result as boolean | undefined) ?? false;
+    const countsInNav = (strategyData[base + 2]?.result as boolean | undefined) ?? false;
     const hf = routerData?.[routerBase]?.result as bigint | undefined;
     const maxLtv = routerData?.[routerBase + 1]?.result as bigint | undefined;
     const hasPt = config?.[9] && config[9] !== ZERO_ADDRESS;
@@ -358,7 +351,7 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
       address: config?.[7] ?? VAULT_ADDRESS,
       active: config?.[0] ?? false,
       targetLtv: config ? Number(config[2]) / 100 : 0,
-      effectiveTargetLtv: effectiveTargetLtvBps ? Number(effectiveTargetLtvBps) / 100 : 0,
+      effectiveTargetLtv: config ? Number(config[2]) / 100 : 0,
       targetLoops: config?.[3] ?? 0,
       venue: config?.[4] ?? 0,
       lendingMarket: config?.[5],
@@ -389,7 +382,6 @@ export function useStrategyPositions(strategyIds: number[], lendingRouter: Addre
         strategyData[base]?.error ||
         strategyData[base + 1]?.error ||
         strategyData[base + 2]?.error ||
-        strategyData[base + 3]?.error ||
         routerData?.[routerBase]?.error ||
         routerData?.[routerBase + 1]?.error
       ),

@@ -68,3 +68,5 @@ Deployment should be followed by a manual verification pass:
 ## Current Risk Focus
 
 Before live deposits, prioritize tests and review around Pendle oracle readiness, market validation, slippage enforcement, deloop behavior under poor liquidity, maturity rollover, and lending venue accounting.
+
+For the testing stage, bounded strategist-applied weight and target LTV automation is removed from `Looped.sol` to keep vault bytecode smaller. Keep using the PT risk article notes in `docs/` as the production design reference, and revisit this automation before live deposits.

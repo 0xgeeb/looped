@@ -21,7 +21,7 @@ contract LoopedForkTest is Test {
     address MAINNET_PENDLE_MARKET = 0x66Ec657C59cdcaf171aB43B83da3942758bF8a97;
 
     /*//////////////////////////////////////////////////////////////
-                         PLAYGROUND CONFIG
+                                CONFIG
     //////////////////////////////////////////////////////////////*/
 
     uint256 USER_STARTING_ASSETS = 25_000e6;
@@ -54,8 +54,8 @@ contract LoopedForkTest is Test {
     uint8 ptDecimals;
     uint8 shareDecimals;
 
-    function testForkPlayground() public {
-        _forkDeployPlayground();
+    function testFork() public {
+        _deploy();
 
         console2.log("\n=== CONFIG ===");
         console2.log("chain id", block.chainid);
@@ -70,18 +70,18 @@ contract LoopedForkTest is Test {
         _fundUser(USER_STARTING_ASSETS);
         _logState("initial");
 
-        // vm.startPrank(user);
-        // ERC20(asset).approve(address(vault), type(uint256).max);
-        // uint256 shares = vault.deposit(DEPOSIT_ASSETS, user);
-        // vm.stopPrank();
+        vm.startPrank(user);
+        ERC20(asset).approve(address(vault), type(uint256).max);
+        uint256 shares = vault.deposit(DEPOSIT_ASSETS, user);
+        vm.stopPrank();
 
-        // console2.log("\nuser deposited assets", _formatToken(DEPOSIT_ASSETS, assetDecimals, assetSymbol));
-        // console2.log("shares minted", _formatShares(shares));
-        // _logState("after deposit");
+        console2.log("\nuser deposited assets", _formatToken(DEPOSIT_ASSETS, assetDecimals, assetSymbol));
+        console2.log("shares minted", _formatShares(shares));
+        _logState("after deposit");
 
-        // vm.prank(strategist);
-        // vault.deployIdle();
-        // _logState("after deployIdle");
+        vm.prank(strategist);
+        vault.deployIdle();
+        _logState("after deployIdle");
 
         // vm.prank(user);
         // uint256 burnedShares = vault.withdraw(WITHDRAW_ASSETS, user, user);
@@ -95,7 +95,7 @@ contract LoopedForkTest is Test {
         // _logState("after rebalance");
     }
 
-    function _forkDeployPlayground() internal {
+    function _deploy() internal {
         string memory rpcUrl = vm.rpcUrl("mainnet");
         vm.createSelectFork(rpcUrl);
         address pendleRouter;

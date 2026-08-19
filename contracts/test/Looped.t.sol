@@ -3,10 +3,8 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {Looped} from "../src/Looped.sol";
-import {StrategyRiskRegistry} from "../src/StrategyRiskRegistry.sol";
 import {ILooped} from "../src/interfaces/ILooped.sol";
 import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
-import {StrategyAutomationConfig} from "../src/interfaces/IStrategyRiskRegistry.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockLendingRouter} from "./mocks/MockLendingRouter.sol";
 import {MockPendleRouter} from "./mocks/MockPendleRouter.sol";
@@ -419,35 +417,6 @@ contract LoopedTest is Test {
         vault.rollInto(0, address(market2));
     }
 
-    function test_strategistCanRollIntoApprovedMarket() public {
-        StrategyRiskRegistry registry = new StrategyRiskRegistry(address(this));
-        vault.setStrategyRiskRegistry(address(registry));
-        _depositAndDeploy(1000e6);
-        MockPendleMarket market2 =
-            new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 60 days);
-        registry.setRolloverMarketApproval(0, address(market2), true);
-
-        vm.warp(block.timestamp + 31 days);
-        vm.prank(strategist);
-        vault.rollIntoApprovedMarket(0, address(market2));
-
-        (,,,,,,, address market,,,,) = vault.strategies(0);
-        assertEq(market, address(market2), "market");
-        assertGt(lendingRouter.collateral(0, address(pt)), 0, "new collateral");
-    }
-
-    function test_strategistCannotRollIntoUnapprovedMarket() public {
-        StrategyRiskRegistry registry = new StrategyRiskRegistry(address(this));
-        vault.setStrategyRiskRegistry(address(registry));
-        MockPendleMarket market2 =
-            new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 60 days);
-
-        vm.warp(block.timestamp + 31 days);
-        vm.prank(strategist);
-        vm.expectRevert(ILooped.InvalidParams.selector);
-        vault.rollIntoApprovedMarket(0, address(market2));
-    }
-
     function test_addStrategyRejectsUnreadyOracle() public {
         MockPendleMarket market2 =
             new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
@@ -606,83 +575,4 @@ contract LoopedTest is Test {
         assertEq(weightBps, 10000, "weight");
     }
 
-    function test_strategistCanApplyApprovedAutomation() public {
-        StrategyRiskRegistry registry = new StrategyRiskRegistry(address(this));
-        vault.setStrategyRiskRegistry(address(registry));
-
-        MockPendleMarket market2 =
-            new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
-        uint256 strategyId =
-            vault.addStrategy(0, 6500, 3, LendingVenue.Aave, makeAddr("market2"), address(usdc), address(market2));
-
-        registry.setAutomationConfig(0, _automationConfig(10000, 0, 8000, 10000, 1000, 0));
-        registry.setAutomationConfig(strategyId, _automationConfig(10000, 0, 8000, 10000, 1000, 0));
-
-        uint256[] memory ids = new uint256[](2);
-        uint16[] memory weights = new uint16[](2);
-        uint16[] memory targetLtvs = new uint16[](2);
-        ids[0] = 0;
-        ids[1] = strategyId;
-        weights[0] = 0;
-        weights[1] = 10000;
-        targetLtvs[0] = 7000;
-        targetLtvs[1] = 6500;
-
-        vm.prank(strategist);
-        vault.applyStrategyAutomation(ids, weights, targetLtvs);
-
-        (bool active0, uint16 weight0,,,,,,,,,,) = vault.strategies(0);
-        (bool active1, uint16 weight1,,,,,,,,,,) = vault.strategies(strategyId);
-        assertTrue(active0, "strategy 0 active");
-        assertTrue(active1, "strategy 1 active");
-        assertEq(weight0, 0, "strategy 0 weight");
-        assertEq(weight1, 10000, "strategy 1 weight");
-    }
-
-    function test_automationRejectsUnapprovedWeight() public {
-        StrategyRiskRegistry registry = new StrategyRiskRegistry(address(this));
-        vault.setStrategyRiskRegistry(address(registry));
-
-        MockPendleMarket market2 =
-            new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
-        uint256 strategyId =
-            vault.addStrategy(0, 6500, 3, LendingVenue.Aave, makeAddr("market2"), address(usdc), address(market2));
-
-        registry.setAutomationConfig(0, _automationConfig(10000, 0, 8000, 10000, 1000, 0));
-        registry.setAutomationConfig(strategyId, _automationConfig(5000, 0, 8000, 10000, 1000, 0));
-
-        uint256[] memory ids = new uint256[](2);
-        uint16[] memory weights = new uint16[](2);
-        uint16[] memory targetLtvs = new uint16[](2);
-        ids[0] = 0;
-        ids[1] = strategyId;
-        weights[0] = 0;
-        weights[1] = 10000;
-        targetLtvs[0] = 7000;
-        targetLtvs[1] = 6500;
-
-        vm.prank(strategist);
-        vm.expectRevert(ILooped.InvalidParams.selector);
-        vault.applyStrategyAutomation(ids, weights, targetLtvs);
-    }
-
-    function _automationConfig(
-        uint16 maxWeightBps,
-        uint16 minTargetLtvBps,
-        uint16 maxTargetLtvBps,
-        uint16 maxWeightChangeBps,
-        uint16 maxLtvChangeBps,
-        uint32 cooldown
-    ) internal pure returns (StrategyAutomationConfig memory) {
-        return StrategyAutomationConfig({
-            weightEnabled: true,
-            ltvEnabled: true,
-            maxWeightBps: maxWeightBps,
-            minTargetLtvBps: minTargetLtvBps,
-            maxTargetLtvBps: maxTargetLtvBps,
-            maxWeightChangeBps: maxWeightChangeBps,
-            maxLtvChangeBps: maxLtvChangeBps,
-            cooldown: cooldown
-        });
-    }
 }
