@@ -1,6 +1,7 @@
 import express from "express";
 import { config } from "./config.js";
-import { getKeeperStatus, startKeeper, stopKeeper } from "./keeper.js";
+import { getKeeperStatus, getVaultSnapshot, startKeeper, stopKeeper } from "./keeper.js";
+import { readKeeperLogs } from "./keeper-log.js";
 
 const app = express();
 
@@ -11,6 +12,30 @@ app.get("/health", (_req, res) => {
     status: "ok",
     keeper: getKeeperStatus(),
   });
+});
+
+app.get("/keeper/status", (_req, res) => {
+  res.json(getKeeperStatus());
+});
+
+app.get("/keeper/logs", async (req, res, next) => {
+  try {
+    const requestedLimit = Number(req.query.limit ?? 100);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(500, Math.floor(requestedLimit)))
+      : 100;
+    res.json({ logs: await readKeeperLogs(limit) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get("/vault/snapshot", async (_req, res, next) => {
+  try {
+    res.json(await getVaultSnapshot());
+  } catch (err) {
+    next(err);
+  }
 });
 
 app.listen(config.port, () => {

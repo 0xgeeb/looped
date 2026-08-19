@@ -18,6 +18,7 @@ export type BackendConfig = {
   rateImprovementThresholdBps: number;
   migrationCooldownMs: number;
   yieldzUrl: string;
+  keeperLogPath: string;
 };
 
 const PRIVATE_KEY_REGEX = /^0x[0-9a-fA-F]{64}$/;
@@ -88,6 +89,7 @@ export const validateConfig = (env: NodeJS.ProcessEnv = process.env): BackendCon
 
     // Rate scanner
     yieldzUrl: env.YIELDZ_URL || "https://yieldz.io/borrow",
+    keeperLogPath: env.KEEPER_LOG_PATH || "data/keeper.log",
   } satisfies BackendConfig;
 
   if (errors.length > 0) {

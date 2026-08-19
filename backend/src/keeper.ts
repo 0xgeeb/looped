@@ -11,6 +11,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
 import { config } from "./config.js";
+import { logKeeperEvent } from "./keeper-log.js";
 import { scrapeYieldz, type YieldzMarket } from "./scraper.js";
 
 const USDC_DECIMALS = 6;
@@ -183,6 +184,9 @@ const formatError = (err: unknown) => {
   return JSON.stringify(err);
 };
 
+const asLogNumber = (value: bigint | number | string | boolean | null) =>
+  typeof value === "bigint" ? value.toString() : value;
+
 const toNumber = (value: number | bigint) =>
   typeof value === "bigint" ? Number(value) : value;
 
@@ -198,6 +202,12 @@ const formatBps = (bps: number) => `${(bps / 100).toFixed(2)}%`;
 
 const markJobStarted = (name: JobName) => {
   keeperStatus.jobs[name].lastStartedAt = new Date().toISOString();
+  logKeeperEvent({
+    job: name,
+    level: "info",
+    action: "started",
+    message: `${name} started`,
+  });
 };
 
 const markJobSucceeded = (name: JobName) => {
@@ -205,6 +215,12 @@ const markJobSucceeded = (name: JobName) => {
   keeperStatus.jobs[name].lastSucceededAt = now;
   keeperStatus.jobs[name].lastError = null;
   keeperStatus.lastSuccessfulJob = name;
+  logKeeperEvent({
+    job: name,
+    level: "success",
+    action: "succeeded",
+    message: `${name} succeeded`,
+  });
 };
 
 const markJobFailed = (name: JobName, err: unknown) => {
@@ -213,12 +229,33 @@ const markJobFailed = (name: JobName, err: unknown) => {
   keeperStatus.jobs[name].lastErrorAt = now;
   keeperStatus.jobs[name].lastError = message;
   keeperStatus.lastError = `[${name}] ${message}`;
+  logKeeperEvent({
+    job: name,
+    level: "error",
+    action: "failed",
+    message,
+  });
 };
 
 const waitForHash = async (job: JobName, hash: Hash) => {
   console.log(`[keeper:${job}] tx sent: ${hash}`);
+  logKeeperEvent({
+    job,
+    level: "tx",
+    action: "tx_sent",
+    message: "transaction sent",
+    txHash: hash,
+  });
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   console.log(`[keeper:${job}] confirmed block ${receipt.blockNumber}`);
+  logKeeperEvent({
+    job,
+    level: "success",
+    action: "tx_confirmed",
+    message: "transaction confirmed",
+    txHash: hash,
+    blockNumber: receipt.blockNumber.toString(),
+  });
 };
 
 export const assertKeeperIsStrategist = (keeperAddress: Address, strategistAddress: Address) => {
@@ -617,6 +654,17 @@ const checkRateOptimizationSafety = async (strategies: Strategy[]) => {
       console.log(
         `[keeper:rates] skipped: strategy ${strategy.id} HF ${formatUnits(hf, 18)} below minimum ${formatUnits(minHF, 18)}`,
       );
+      logKeeperEvent({
+        job: "rateOptimize",
+        level: "skip",
+        action: "safety_check",
+        message: "strategy health factor is below minimum",
+        strategyId: strategy.id.toString(),
+        data: {
+          healthFactor: formatUnits(hf, 18),
+          minHealthFactor: formatUnits(minHF, 18),
+        },
+      });
       return false;
     }
   }
@@ -628,6 +676,12 @@ const callDeployIdle = async () => {
   try {
     if (config.dryRun) {
       console.log("[keeper:deployIdle] dry run: would call deployIdle()");
+      logKeeperEvent({
+        job: "deployIdle",
+        level: "tx",
+        action: "dry_run",
+        message: "dry run: would call deployIdle",
+      });
       return;
     }
 
@@ -648,6 +702,12 @@ const callRebalance = async (job: JobName = "healthCheck") => {
   try {
     if (config.dryRun) {
       console.log(`[keeper:${job}] dry run: would call rebalance()`);
+      logKeeperEvent({
+        job,
+        level: "tx",
+        action: "dry_run",
+        message: "dry run: would call rebalance",
+      });
       return;
     }
 
@@ -668,6 +728,13 @@ const callRolloverToIdle = async (strategyId: bigint) => {
   try {
     if (config.dryRun) {
       console.log(`[keeper:rollover] dry run: would call rolloverToIdle(${strategyId})`);
+      logKeeperEvent({
+        job: "rollover",
+        level: "tx",
+        action: "dry_run",
+        message: "dry run: would call rolloverToIdle",
+        strategyId: strategyId.toString(),
+      });
       return;
     }
 
@@ -689,7 +756,15 @@ const callRolloverToIdle = async (strategyId: bigint) => {
 
 const checkAndDeployIdle = async () => {
   const paused = await readVault("paused");
-  if (paused) return;
+  if (paused) {
+    logKeeperEvent({
+      job: "deployIdle",
+      level: "skip",
+      action: "paused",
+      message: "vault is paused",
+    });
+    return;
+  }
 
   const asset = await readVault("asset") as Address;
   const idle = await publicClient.readContract({
@@ -703,13 +778,33 @@ const checkAndDeployIdle = async () => {
   const targetBufferBps = await readVault("targetBuffer") as bigint;
   const bufferTarget = totalAssets * targetBufferBps / 10000n;
 
-  if (totalAssets === 0n) return;
+  if (totalAssets === 0n) {
+    logKeeperEvent({
+      job: "deployIdle",
+      level: "skip",
+      action: "no_assets",
+      message: "vault has no assets",
+    });
+    return;
+  }
 
   const idleRatio = idle * 10000n / totalAssets;
 
   console.log(
     `[keeper:idle] idle: ${formatUnits(idle, USDC_DECIMALS)} | buffer target: ${formatUnits(bufferTarget, USDC_DECIMALS)} | idle ratio: ${idleRatio} bps`
   );
+  logKeeperEvent({
+    job: "deployIdle",
+    level: idle > bufferTarget ? "info" : "skip",
+    action: "idle_check",
+    message: idle > bufferTarget ? "idle is above buffer target" : "idle is at or below buffer target",
+    data: {
+      idleUsdc: formatUnits(idle, USDC_DECIMALS),
+      totalAssetsUsdc: formatUnits(totalAssets, USDC_DECIMALS),
+      bufferTargetUsdc: formatUnits(bufferTarget, USDC_DECIMALS),
+      idleRatioBps: asLogNumber(idleRatio),
+    },
+  });
 
   if (idle > bufferTarget) {
     console.log("[keeper:idle] deploying excess idle");
@@ -721,6 +816,12 @@ const checkHealthFactor = async () => {
   const paused = await readVault("paused");
   if (paused) {
     console.log("[keeper:health] vault is paused, skipping");
+    logKeeperEvent({
+      job: "healthCheck",
+      level: "skip",
+      action: "paused",
+      message: "vault is paused",
+    });
     return;
   }
 
@@ -741,6 +842,19 @@ const checkHealthFactor = async () => {
       console.log(
         `[keeper:health] strategy ${strategy.id} (${strategy.weightBps} bps) HF: ${formatUnits(hf, 18)} | minimum: ${formatUnits(minHF, 18)}`
       );
+      logKeeperEvent({
+        job: "healthCheck",
+        level: hf < minHF ? "info" : "success",
+        action: "health_check",
+        message: hf < minHF ? "health factor is below minimum" : "health factor is above minimum",
+        strategyId: strategy.id.toString(),
+        data: {
+          healthFactor: formatUnits(hf, 18),
+          minHealthFactor: formatUnits(minHF, 18),
+          weightBps: asLogNumber(strategy.weightBps),
+          debt: debt.toString(),
+        },
+      });
 
       if (hf < minHF) {
         console.log(`[keeper:health] strategy ${strategy.id} HF below minimum, calling rebalance`);
@@ -749,13 +863,28 @@ const checkHealthFactor = async () => {
       }
     } catch {
       console.log(`[keeper:health] strategy ${strategy.id} health check failed, skipping`);
+      logKeeperEvent({
+        job: "healthCheck",
+        level: "error",
+        action: "health_check_failed",
+        message: "strategy health check failed",
+        strategyId: strategy.id.toString(),
+      });
     }
   }
 };
 
 const checkMaturedStrategies = async () => {
   const paused = await readVault("paused");
-  if (paused) return;
+  if (paused) {
+    logKeeperEvent({
+      job: "rollover",
+      level: "skip",
+      action: "paused",
+      message: "vault is paused",
+    });
+    return;
+  }
 
   const strategies = await getActiveStrategies();
   for (const strategy of strategies) {
@@ -771,10 +900,38 @@ const checkMaturedStrategies = async () => {
       const now = BigInt(Math.floor(Date.now() / 1000));
       if (expiry <= now) {
         console.log(`[keeper:rollover] strategy ${strategy.id} matured (expiry: ${expiry}), rolling over to idle`);
+        logKeeperEvent({
+          job: "rollover",
+          level: "info",
+          action: "matured",
+          message: "strategy matured and will roll to idle",
+          strategyId: strategy.id.toString(),
+          data: {
+            expiry: expiry.toString(),
+          },
+        });
         await callRolloverToIdle(strategy.id);
+      } else {
+        logKeeperEvent({
+          job: "rollover",
+          level: "skip",
+          action: "not_matured",
+          message: "strategy is not mature",
+          strategyId: strategy.id.toString(),
+          data: {
+            expiry: expiry.toString(),
+          },
+        });
       }
     } catch {
       console.log(`[keeper:rollover] strategy ${strategy.id} expiry check failed, skipping`);
+      logKeeperEvent({
+        job: "rollover",
+        level: "error",
+        action: "expiry_check_failed",
+        message: "strategy expiry check failed",
+        strategyId: strategy.id.toString(),
+      });
     }
   }
 };
@@ -783,12 +940,24 @@ const checkRateOptimization = async () => {
   const paused = await readVault("paused");
   if (paused) {
     console.log("[keeper:rates] vault is paused, skipping");
+    logKeeperEvent({
+      job: "rateOptimize",
+      level: "skip",
+      action: "paused",
+      message: "vault is paused",
+    });
     return;
   }
 
   const totalAssets = await readVault("totalAssets") as bigint;
   if (totalAssets === 0n) {
     console.log("[keeper:rates] skipped: no assets");
+    logKeeperEvent({
+      job: "rateOptimize",
+      level: "skip",
+      action: "no_assets",
+      message: "vault has no assets",
+    });
     return;
   }
 
@@ -796,12 +965,27 @@ const checkRateOptimization = async () => {
   const nextAllowedAt = lastRateOptimizationAt + config.migrationCooldownMs;
   if (lastRateOptimizationAt > 0 && now < nextAllowedAt) {
     console.log(`[keeper:rates] skipped: cooldown active for ${Math.ceil((nextAllowedAt - now) / 1000)}s`);
+    logKeeperEvent({
+      job: "rateOptimize",
+      level: "skip",
+      action: "cooldown",
+      message: "rate optimization cooldown is active",
+      data: {
+        secondsRemaining: Math.ceil((nextAllowedAt - now) / 1000),
+      },
+    });
     return;
   }
 
   const strategies = await getActiveStrategies();
   if (strategies.length === 0) {
     console.log("[keeper:rates] skipped: no active strategies");
+    logKeeperEvent({
+      job: "rateOptimize",
+      level: "skip",
+      action: "no_active_strategies",
+      message: "no active strategies",
+    });
     return;
   }
 
@@ -811,12 +995,24 @@ const checkRateOptimization = async () => {
   const markets = await scrapeYieldz();
   if (markets.length === 0) {
     console.log("[keeper:rates] skipped: no Yieldz markets");
+    logKeeperEvent({
+      job: "rateOptimize",
+      level: "skip",
+      action: "no_rate_markets",
+      message: "no Yieldz markets",
+    });
     return;
   }
 
   const rated = await getRatedStrategies(strategies, markets);
   if (rated.length === 0) {
     console.log("[keeper:rates] skipped: no Yieldz markets matched active strategies");
+    logKeeperEvent({
+      job: "rateOptimize",
+      level: "skip",
+      action: "no_rate_matches",
+      message: "no Yieldz markets matched active strategies",
+    });
     return;
   }
 
@@ -827,6 +1023,12 @@ const checkRateOptimization = async () => {
   const totalWeight = rated.reduce((sum, item) => sum + item.strategy.weightBps, 0n);
   if (totalWeight === 0n) {
     console.log("[keeper:rates] skipped: matched strategy weight is zero");
+    logKeeperEvent({
+      job: "rateOptimize",
+      level: "skip",
+      action: "zero_weight",
+      message: "matched strategy weight is zero",
+    });
     return;
   }
 
@@ -843,6 +1045,25 @@ const checkRateOptimization = async () => {
       `current LTV ${best.currentLtvBps} bps | maturity ${best.maturityDays}d | ${best.riskReason} | ` +
       `improvement ${improvementBps} bps`,
   );
+  logKeeperEvent({
+    job: "rateOptimize",
+    level: improvementBps >= config.rateImprovementThresholdBps ? "info" : "skip",
+    action: "rate_check",
+    message: improvementBps >= config.rateImprovementThresholdBps
+      ? "rate improvement is above threshold"
+      : "rate improvement is below threshold",
+    strategyId: best.strategy.id.toString(),
+    data: {
+      netApyBps: best.netApyBps,
+      adjustedApyBps: best.adjustedApyBps,
+      weightedApyBps,
+      improvementBps,
+      thresholdBps: config.rateImprovementThresholdBps,
+      safeTargetLtvBps: best.safeTargetLtvBps,
+      currentLtvBps: best.currentLtvBps,
+      maturityDays: best.maturityDays,
+    },
+  });
 
   if (improvementBps < config.rateImprovementThresholdBps) {
     console.log(
@@ -924,3 +1145,125 @@ export const getKeeperStatus = () => ({
     rateOptimize: { ...keeperStatus.jobs.rateOptimize },
   },
 });
+
+export const getVaultSnapshot = async () => {
+  const [
+    totalAssets,
+    targetBufferBps,
+    minHealthFactor,
+    paused,
+    strategist,
+    lendingRouter,
+    asset,
+    strategyIds,
+  ] = await Promise.all([
+    readVault("totalAssets") as Promise<bigint>,
+    readVault("targetBuffer") as Promise<bigint>,
+    readVault("minHealthFactor") as Promise<bigint>,
+    readVault("paused") as Promise<boolean>,
+    readVault("strategist") as Promise<Address>,
+    readVault("lendingRouter") as Promise<Address>,
+    readVault("asset") as Promise<Address>,
+    readVault("getStrategyIds") as Promise<bigint[]>,
+  ]);
+
+  const idle = await publicClient.readContract({
+    address: asset,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [vault],
+  });
+
+  const strategies = [];
+  for (const id of strategyIds) {
+    try {
+      const strategy = await readVault("strategies", [id]) as unknown as readonly [
+        boolean,
+        number | bigint,
+        number | bigint,
+        number | bigint,
+        number | bigint,
+        Address,
+        Address,
+        Address,
+        Address,
+        Address,
+        Address,
+        Address,
+      ];
+      const [
+        active,
+        weightBps,
+        targetLtvBps,
+        targetLoops,
+        venue,
+        lendingMarket,
+        borrowAsset,
+        pendleMarket,
+        sy,
+        pt,
+        yt,
+        underlying,
+      ] = strategy;
+      const [collateral, debt] = await readVault("getStrategyPosition", [id]) as readonly [bigint, bigint, bigint];
+      const [healthFactor, maxLtvBps] = await Promise.all([
+        readLendingRouter(lendingRouter, "getHealthFactor", [
+          id,
+          toNumber(venue),
+          lendingMarket,
+        ]) as Promise<bigint>,
+        readLendingRouter(lendingRouter, "getMaxLtv", [
+          id,
+          toNumber(venue),
+          lendingMarket,
+          pt,
+        ]) as Promise<bigint>,
+      ]);
+
+      strategies.push({
+        id: id.toString(),
+        active,
+        venue: venueName(toNumber(venue)),
+        weightBps: asLogNumber(weightBps),
+        targetLtvBps: asLogNumber(targetLtvBps),
+        targetLoops: asLogNumber(targetLoops),
+        maxLtvBps: maxLtvBps.toString(),
+        healthFactor: formatUnits(healthFactor, 18),
+        collateral: collateral.toString(),
+        debt: debt.toString(),
+        lendingMarket,
+        borrowAsset,
+        pendleMarket,
+        sy,
+        pt,
+        yt,
+        underlying,
+        readError: false,
+      });
+    } catch (err) {
+      strategies.push({
+        id: id.toString(),
+        readError: true,
+        error: formatError(err),
+      });
+    }
+  }
+
+  return {
+    timestamp: new Date().toISOString(),
+    chainId: mainnet.id,
+    vaultAddress: vault,
+    keeperAddress: account.address,
+    strategistAddress: strategist,
+    paused,
+    asset,
+    lendingRouter,
+    totalAssets: totalAssets.toString(),
+    totalAssetsUsdc: formatUnits(totalAssets, USDC_DECIMALS),
+    idle: idle.toString(),
+    idleUsdc: formatUnits(idle, USDC_DECIMALS),
+    targetBufferBps: targetBufferBps.toString(),
+    minHealthFactor: formatUnits(minHealthFactor, 18),
+    strategies,
+  };
+};
