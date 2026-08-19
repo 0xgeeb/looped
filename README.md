@@ -76,12 +76,20 @@ Wallet roles:
 - `OWNER_ADDRESS`: multisig owner for privileged parameter changes and emergency actions.
 - `KEEPER_PRIVATE_KEY`: backend key; its address should match the on-chain strategist.
 
+Keeper automation:
+
+- Owner governance sets per-strategy automation limits in `StrategyRiskRegistry`.
+- The keeper can call `applyStrategyAutomation()` only inside those limits.
+- The keeper can move weights and target LTV for already configured strategies, then call `rebalance()`.
+- The keeper cannot add new markets or bypass registry caps.
+
 Before accepting deposits, verify:
 
 - Owner is the intended multisig.
 - Strategist is the intended keeper wallet.
 - Lending router is set.
 - Strategy weights sum to 10000.
+- Automation limits are disabled or set to conservative approved bounds.
 - Pendle market metadata and oracle readiness are valid.
 - Target LTV, loop count, min health factor, buffer, and slippage bounds match the launch plan.
 - Vault is unpaused only after a small-capital rehearsal.

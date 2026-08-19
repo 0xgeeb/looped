@@ -47,6 +47,7 @@ export const vaultAbi = parseAbi([
   "function withdraw(uint256 assets, address receiver, address owner) returns (uint256)",
   "function redeem(uint256 shares, address receiver, address owner) returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)",
+  "function applyStrategyAutomation(uint256[] strategyIds, uint16[] weights, uint16[] targetLtvBpsValues)",
 ]);
 
 export const erc20Abi = parseAbi([

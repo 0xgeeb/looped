@@ -37,6 +37,7 @@ const vaultAbi = parseAbi([
   "function deployIdle()",
   "function rebalance()",
   "function rolloverToIdle(uint256 strategyId)",
+  "function applyStrategyAutomation(uint256[] strategyIds, uint16[] weights, uint16[] targetLtvBpsValues)",
 ]);
 
 const lendingRouterAbi = parseAbi([
@@ -107,6 +108,7 @@ type KeeperStatus = {
 
 type Strategy = {
   id: bigint;
+  active: boolean;
   weightBps: bigint;
   targetLtvBps: bigint;
   targetLoops: number;
@@ -328,6 +330,7 @@ const getActiveStrategies = async (): Promise<Strategy[]> => {
     if (active && normalizedWeightBps > 0) {
       results.push({
         id,
+        active,
         weightBps: BigInt(normalizedWeightBps),
         targetLtvBps: BigInt(toNumber(targetLtvBps)),
         targetLoops: toNumber(targetLoops),
@@ -338,6 +341,46 @@ const getActiveStrategies = async (): Promise<Strategy[]> => {
         pt,
       });
     }
+  }
+
+  return results;
+};
+
+const getConfiguredStrategies = async (): Promise<Strategy[]> => {
+  const strategyIds = await readVault("getStrategyIds") as bigint[];
+  const results: Strategy[] = [];
+
+  for (const id of strategyIds) {
+    const strategy = await readVault("strategies", [id]) as unknown as readonly [
+      boolean,
+      number | bigint,
+      number | bigint,
+      number | bigint,
+      number | bigint,
+      Address,
+      Address,
+      Address,
+      Address,
+      Address,
+      Address,
+      Address,
+    ];
+    const [active, weightBps, targetLtvBps, targetLoops, venue, lendingMarket, borrowAsset, pendleMarket, , pt] = strategy;
+
+    if (pendleMarket === ZERO_ADDRESS || pt === ZERO_ADDRESS) continue;
+
+    results.push({
+      id,
+      active,
+      weightBps: BigInt(toNumber(weightBps)),
+      targetLtvBps: BigInt(toNumber(targetLtvBps)),
+      targetLoops: toNumber(targetLoops),
+      venue: toNumber(venue),
+      lendingMarket,
+      borrowAsset,
+      pendleMarket,
+      pt,
+    });
   }
 
   return results;
@@ -752,6 +795,42 @@ const callRolloverToIdle = async (strategyId: bigint) => {
   }
 };
 
+const callApplyStrategyAutomation = async (strategies: Strategy[], best: RatedStrategy) => {
+  const strategyIds = strategies.map((strategy) => strategy.id);
+  const weights = strategies.map((strategy) => strategy.id === best.strategy.id ? 10_000 : 0);
+  const targetLtvBpsValues = strategies.map((strategy) =>
+    strategy.id === best.strategy.id ? best.safeTargetLtvBps : Number(strategy.targetLtvBps),
+  );
+
+  if (config.dryRun) {
+    console.log(
+      `[keeper:rates] dry run: would apply strategy ${best.strategy.id} at 10000 bps and target LTV ${best.safeTargetLtvBps} bps`,
+    );
+    logKeeperEvent({
+      job: "rateOptimize",
+      level: "tx",
+      action: "dry_run",
+      message: "dry run: would apply strategy automation",
+      strategyId: best.strategy.id.toString(),
+      data: {
+        strategyIds: strategyIds.map((id) => id.toString()),
+        weights,
+        targetLtvBpsValues,
+      },
+    });
+    return;
+  }
+
+  const hash = await walletClient.writeContract({
+    chain: mainnet,
+    address: vault,
+    abi: vaultAbi,
+    functionName: "applyStrategyAutomation",
+    args: [strategyIds, weights, targetLtvBpsValues],
+  });
+  await waitForHash("rateOptimize", hash);
+};
+
 // ─── Jobs ────────────────────────────────────────────────────
 
 const checkAndDeployIdle = async () => {
@@ -977,8 +1056,9 @@ const checkRateOptimization = async () => {
     return;
   }
 
-  const strategies = await getActiveStrategies();
-  if (strategies.length === 0) {
+  const strategies = await getConfiguredStrategies();
+  const candidateStrategies = strategies.filter((strategy) => strategy.active);
+  if (candidateStrategies.length === 0) {
     console.log("[keeper:rates] skipped: no active strategies");
     logKeeperEvent({
       job: "rateOptimize",
@@ -989,7 +1069,7 @@ const checkRateOptimization = async () => {
     return;
   }
 
-  const safeToOptimize = await checkRateOptimizationSafety(strategies);
+  const safeToOptimize = await checkRateOptimizationSafety(candidateStrategies.filter((strategy) => strategy.weightBps > 0n));
   if (!safeToOptimize) return;
 
   const markets = await scrapeYieldz();
@@ -1004,7 +1084,7 @@ const checkRateOptimization = async () => {
     return;
   }
 
-  const rated = await getRatedStrategies(strategies, markets);
+  const rated = await getRatedStrategies(candidateStrategies, markets);
   if (rated.length === 0) {
     console.log("[keeper:rates] skipped: no Yieldz markets matched active strategies");
     logKeeperEvent({
@@ -1072,9 +1152,9 @@ const checkRateOptimization = async () => {
     return;
   }
 
-  console.log(
-    "[keeper:rates] improvement above threshold, calling rebalance to apply configured strategy weights",
-  );
+  console.log("[keeper:rates] improvement above threshold, applying approved strategy automation");
+  await callApplyStrategyAutomation(strategies, best);
+  console.log("[keeper:rates] calling rebalance after approved strategy update");
   await callRebalance("rateOptimize");
   lastRateOptimizationAt = Date.now();
 };

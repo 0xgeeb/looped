@@ -1,0 +1,448 @@
+Looped Production Flow
+
+Scope
+
+This file shows the main function-call flows from deploy, to user deposits, to keeper strategy updates and fund management.
+
+
+1. Deploy Flow
+
+1. Deploy vault.
+
+   new Looped(
+     asset,
+     pendleRouter,
+     pendleOracle,
+     twapDuration,
+     targetLoops,
+     targetLtvBps,
+     minHealthFactor
+   )
+
+2. Deploy lending router.
+
+   new LendingRouter(
+     vault,
+     aaveDataProvider,
+     morpho
+   )
+
+3. Deploy risk registry.
+
+   new StrategyRiskRegistry(deployer)
+
+4. Wire contracts into the vault.
+
+   vault.setLendingRouter(lendingRouter)
+   vault.setStrategyRiskRegistry(strategyRiskRegistry)
+
+5. Set launch parameters.
+
+   vault.setTargetBuffer(targetBufferBps)
+   vault.setWithdrawalFeeBps(withdrawalFeeBps)
+   vault.setFeeRecipient(feeRecipient)
+   vault.setMaxSwapSlippageBps(maxSwapSlippageBps)
+
+6. Add owner-approved strategies.
+
+   vault.addStrategy(
+     weightBps,
+     targetLtvBps,
+     targetLoops,
+     venue,
+     lendingMarket,
+     borrowAsset,
+     pendleMarket
+   )
+
+   The vault validates:
+
+   - Pendle market address is a contract.
+   - Market is not expired.
+   - SY, PT, and YT addresses are present.
+   - Underlying asset is supported.
+   - Pendle oracle is ready.
+
+7. Set keeper automation limits per strategy.
+
+   strategyRiskRegistry.setAutomationConfig(
+     strategyId,
+     automationConfig
+   )
+
+   The automation config controls:
+
+   - if keeper can change weight
+   - if keeper can change target LTV
+   - max weight
+   - min target LTV
+   - max target LTV
+   - max weight change per call
+   - max target LTV change per call
+   - cooldown
+
+8. Set risk limits per strategy when ready.
+
+   strategyRiskRegistry.setRiskConfig(
+     strategyId,
+     riskConfig
+   )
+
+   The vault currently enforces these risk config fields in leverage and automation paths:
+
+   - riskEnabled
+   - ltvCapBps
+   - ltvBufferBps
+   - staleAfter
+   - updatedAt
+
+9. Set keeper wallet.
+
+   vault.setStrategist(strategist)
+
+10. Transfer ownership to governance.
+
+   strategyRiskRegistry.transferOwnership(owner)
+   vault.transferOwnership(owner)
+
+
+2. User Deposit And Deploy Flow
+
+1. User approves USDC.
+
+   USDC.approve(vault, assets)
+
+2. User deposits into the ERC-4626 vault.
+
+   vault.deposit(assets, receiver)
+
+3. Vault mints shares to receiver.
+
+   Internal path:
+
+   ERC4626.deposit(...)
+   Looped._afterDeposit(...)
+
+4. Deposit remains idle until the keeper or owner deploys it.
+
+5. Keeper deploys excess idle funds.
+
+   vault.deployIdle()
+
+6. Vault calculates deployable idle funds.
+
+   idle = USDC.balanceOf(vault)
+   total = vault.totalAssets()
+   bufferTarget = total * targetBuffer / 10000
+   deployable = idle - bufferTarget
+
+7. Vault deploys by strategy weight.
+
+   Internal path:
+
+   Looped._deployByWeight(deployable)
+
+8. For each active weighted strategy, vault loops.
+
+   Internal path:
+
+   Looped._loop(strategyShare, strategyId)
+
+9. Vault swaps USDC or borrow asset into PT.
+
+   Internal path:
+
+   Looped._swapTokenToPt(tokenIn, amount, pendleMarket)
+   pendleRouter.swapExactTokenForPt(...)
+
+10. Vault supplies PT collateral.
+
+   lendingRouter.supply(
+     strategyId,
+     venue,
+     lendingMarket,
+     pt,
+     ptAmount
+   )
+
+11. Vault borrows the borrow asset.
+
+   lendingRouter.borrow(
+     strategyId,
+     venue,
+     lendingMarket,
+     borrowAsset,
+     borrowAmount
+   )
+
+12. Vault repeats swap and supply until target loops or target LTV is reached.
+
+13. Vault checks health factor.
+
+   lendingRouter.getHealthFactor(
+     strategyId,
+     venue,
+     lendingMarket
+   )
+
+14. If health factor is below minimum, the loop reverts.
+
+
+3. User Withdraw Flow
+
+1. User withdraws assets or redeems shares.
+
+   vault.withdraw(assets, receiver, owner)
+   vault.redeem(shares, receiver, owner)
+
+2. Vault calculates withdrawal fee.
+
+   Internal path:
+
+   Looped.previewWithdraw(...)
+   Looped.previewRedeem(...)
+   Looped._withdraw(...)
+
+3. If idle USDC is enough, vault transfers assets to the receiver.
+
+4. If idle USDC is not enough, vault frees funds from strategies.
+
+   Internal path:
+
+   Looped._beforeWithdraw(grossAssets, shares)
+   Looped._deloop(toFree, strategyId)
+
+5. Vault withdraws PT collateral.
+
+   lendingRouter.withdraw(
+     strategyId,
+     venue,
+     lendingMarket,
+     pt,
+     toWithdrawPt
+   )
+
+6. Vault swaps PT to borrow asset for repayment when debt exists.
+
+   Looped._swapPtToToken(
+     repayPt,
+     strategyId,
+     borrowAsset,
+     expectedAssetOut
+   )
+
+7. Vault repays debt.
+
+   lendingRouter.repay(
+     strategyId,
+     venue,
+     lendingMarket,
+     borrowAsset,
+     repayAmount
+   )
+
+8. Vault swaps remaining free PT to USDC.
+
+   Looped._swapPtToToken(
+     freePt,
+     strategyId,
+     usdc,
+     expectedAssetOut
+   )
+
+9. Vault transfers fee and user assets.
+
+   USDC.transfer(feeRecipient, fee)
+   USDC.transfer(receiver, assets)
+
+
+4. Keeper Normal Management Flow
+
+1. Keeper starts and validates its wallet.
+
+   vault.strategist()
+
+   The backend requires:
+
+   keeperAddress == strategist
+
+2. Keeper checks idle assets.
+
+   Reads:
+
+   vault.paused()
+   vault.asset()
+   USDC.balanceOf(vault)
+   vault.totalAssets()
+   vault.targetBuffer()
+
+3. If idle assets are above target buffer, keeper calls:
+
+   vault.deployIdle()
+
+4. Keeper checks health factor.
+
+   Reads:
+
+   vault.getStrategyIds()
+   vault.strategies(strategyId)
+   vault.getStrategyPosition(strategyId)
+   vault.minHealthFactor()
+   vault.lendingRouter()
+   lendingRouter.getHealthFactor(strategyId, venue, lendingMarket)
+
+5. If a strategy health factor is too low, keeper calls:
+
+   vault.rebalance()
+
+6. Vault rebalances.
+
+   Internal path:
+
+   Looped.rebalance()
+   Looped._deloopAll(strategyId)
+   Looped._deployByWeight(idleDeployable)
+   Looped._loop(strategyShare, strategyId)
+
+7. Keeper checks maturity.
+
+   Reads:
+
+   vault.getStrategyIds()
+   vault.strategies(strategyId)
+   pendleMarket.expiry()
+
+8. If a strategy has matured, keeper calls:
+
+   vault.rolloverToIdle(strategyId)
+
+9. Vault rolls matured strategy to idle.
+
+   Internal path:
+
+   Looped.rolloverToIdle(strategyId)
+   Looped._deloopAll(strategyId)
+
+   Then vault clears:
+
+   - pendleMarket
+   - sy
+   - pt
+   - yt
+   - underlying
+
+
+5. Keeper Strategy Update Flow
+
+1. Keeper checks if rate optimization can run.
+
+   Reads:
+
+   vault.paused()
+   vault.totalAssets()
+
+   Backend checks:
+
+   - migration cooldown
+   - active configured strategies exist
+
+2. Keeper reads strategy state.
+
+   vault.getStrategyIds()
+   vault.strategies(strategyId)
+   vault.getStrategyPosition(strategyId)
+   vault.getEffectiveTargetLtvBps(strategyId)
+
+3. Keeper reads lending state.
+
+   vault.lendingRouter()
+   lendingRouter.getHealthFactor(strategyId, venue, lendingMarket)
+   lendingRouter.getMaxLtv(strategyId, venue, lendingMarket, pt)
+
+4. Keeper reads risk state.
+
+   vault.strategyRiskRegistry()
+   strategyRiskRegistry.riskConfig(strategyId)
+   strategyRiskRegistry.automationConfig(strategyId)
+
+5. Keeper reads Pendle state.
+
+   pendleMarket.expiry()
+   vault.pendleOracle()
+   vault.twapDuration()
+   pendleOracle.getPtToAssetRate(pendleMarket, twapDuration)
+
+6. Keeper scrapes and scores available Yieldz markets.
+
+   Backend path:
+
+   scrapeYieldz()
+   getRatedStrategies(...)
+   scoreStrategyRisk(...)
+
+7. Keeper selects the best active approved strategy if improvement is above threshold.
+
+8. Keeper applies the owner-approved strategy update.
+
+   vault.applyStrategyAutomation(
+     strategyIds,
+     weights,
+     targetLtvBpsValues
+   )
+
+9. Vault validates each requested update against the risk registry.
+
+   Validation checks:
+
+   - strategy exists
+   - no duplicate strategy IDs
+   - weight change is enabled
+   - target LTV change is enabled
+   - weight is not above maxWeightBps
+   - target LTV is inside min and max bounds
+   - weight delta is inside maxWeightChangeBps
+   - LTV delta is inside maxLtvChangeBps
+   - cooldown has passed
+   - final registered strategy weights sum to 10000
+   - if risk config is enabled, target LTV does not exceed ltvCapBps
+   - if risk config is enabled, target LTV does not exceed venue max LTV minus ltvBufferBps
+   - if risk config is stale, target LTV must be zero
+
+10. Vault updates strategy weights and target LTV values.
+
+    State updates:
+
+    strategies[strategyId].weightBps
+    strategies[strategyId].targetLtvBps
+    lastStrategyAutomationAt[strategyId]
+
+11. Keeper rebalances after the approved update.
+
+    vault.rebalance()
+
+12. Vault exits old weighted positions and deploys into the new configured weights.
+
+    Internal path:
+
+    Looped._deloopAll(strategyId)
+    Looped._deployByWeight(idleDeployable)
+    Looped._loop(strategyShare, strategyId)
+
+
+6. What The Keeper Cannot Do
+
+The keeper cannot:
+
+- add a new strategy
+- approve a new Pendle market
+- approve a new lending market
+- change supported underlyings
+- change the lending router
+- change the risk registry
+- bypass owner-set automation limits
+- bypass risk LTV caps
+- bypass stale risk config behavior
+- transfer ownership
+- pause or unpause
+- emergency deleverage
+
