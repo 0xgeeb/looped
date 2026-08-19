@@ -3,8 +3,10 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {Looped} from "../src/Looped.sol";
+import {StrategyRiskRegistry} from "../src/StrategyRiskRegistry.sol";
 import {ILooped} from "../src/interfaces/ILooped.sol";
 import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
+import {StrategyAutomationConfig} from "../src/interfaces/IStrategyRiskRegistry.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockLendingRouter} from "./mocks/MockLendingRouter.sol";
 import {MockPendleRouter} from "./mocks/MockPendleRouter.sol";
@@ -579,5 +581,85 @@ contract LoopedTest is Test {
         assertGt(col, 0, "collateral");
         assertGt(dbt, 0, "debt");
         assertEq(weightBps, 10000, "weight");
+    }
+
+    function test_strategistCanApplyApprovedAutomation() public {
+        StrategyRiskRegistry registry = new StrategyRiskRegistry(address(this));
+        vault.setStrategyRiskRegistry(address(registry));
+
+        MockPendleMarket market2 =
+            new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
+        uint256 strategyId =
+            vault.addStrategy(0, 6500, 3, LendingVenue.Aave, makeAddr("market2"), address(usdc), address(market2));
+
+        registry.setAutomationConfig(0, _automationConfig(10000, 0, 8000, 10000, 1000, 0));
+        registry.setAutomationConfig(strategyId, _automationConfig(10000, 0, 8000, 10000, 1000, 0));
+
+        uint256[] memory ids = new uint256[](2);
+        uint16[] memory weights = new uint16[](2);
+        uint16[] memory targetLtvs = new uint16[](2);
+        ids[0] = 0;
+        ids[1] = strategyId;
+        weights[0] = 0;
+        weights[1] = 10000;
+        targetLtvs[0] = 7000;
+        targetLtvs[1] = 6500;
+
+        vm.prank(strategist);
+        vault.applyStrategyAutomation(ids, weights, targetLtvs);
+
+        (bool active0, uint16 weight0,,,,,,,,,,) = vault.strategies(0);
+        (bool active1, uint16 weight1,,,,,,,,,,) = vault.strategies(strategyId);
+        assertTrue(active0, "strategy 0 active");
+        assertTrue(active1, "strategy 1 active");
+        assertEq(weight0, 0, "strategy 0 weight");
+        assertEq(weight1, 10000, "strategy 1 weight");
+    }
+
+    function test_automationRejectsUnapprovedWeight() public {
+        StrategyRiskRegistry registry = new StrategyRiskRegistry(address(this));
+        vault.setStrategyRiskRegistry(address(registry));
+
+        MockPendleMarket market2 =
+            new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 30 days);
+        uint256 strategyId =
+            vault.addStrategy(0, 6500, 3, LendingVenue.Aave, makeAddr("market2"), address(usdc), address(market2));
+
+        registry.setAutomationConfig(0, _automationConfig(10000, 0, 8000, 10000, 1000, 0));
+        registry.setAutomationConfig(strategyId, _automationConfig(5000, 0, 8000, 10000, 1000, 0));
+
+        uint256[] memory ids = new uint256[](2);
+        uint16[] memory weights = new uint16[](2);
+        uint16[] memory targetLtvs = new uint16[](2);
+        ids[0] = 0;
+        ids[1] = strategyId;
+        weights[0] = 0;
+        weights[1] = 10000;
+        targetLtvs[0] = 7000;
+        targetLtvs[1] = 6500;
+
+        vm.prank(strategist);
+        vm.expectRevert(ILooped.InvalidParams.selector);
+        vault.applyStrategyAutomation(ids, weights, targetLtvs);
+    }
+
+    function _automationConfig(
+        uint16 maxWeightBps,
+        uint16 minTargetLtvBps,
+        uint16 maxTargetLtvBps,
+        uint16 maxWeightChangeBps,
+        uint16 maxLtvChangeBps,
+        uint32 cooldown
+    ) internal pure returns (StrategyAutomationConfig memory) {
+        return StrategyAutomationConfig({
+            weightEnabled: true,
+            ltvEnabled: true,
+            maxWeightBps: maxWeightBps,
+            minTargetLtvBps: minTargetLtvBps,
+            maxTargetLtvBps: maxTargetLtvBps,
+            maxWeightChangeBps: maxWeightChangeBps,
+            maxLtvChangeBps: maxLtvChangeBps,
+            cooldown: cooldown
+        });
     }
 }

@@ -6,6 +6,7 @@ import {Looped} from "../src/Looped.sol";
 import {LendingRouter} from "../src/LendingRouter.sol";
 import {StrategyRiskRegistry} from "../src/StrategyRiskRegistry.sol";
 import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
+import {StrategyAutomationConfig} from "../src/interfaces/IStrategyRiskRegistry.sol";
 
 contract Deploy is Script {
     address internal constant USDC = address(0);
@@ -27,6 +28,14 @@ contract Deploy is Script {
     uint256 internal constant WITHDRAWAL_FEE_BPS = 5;
     uint256 internal constant MAX_SWAP_SLIPPAGE_BPS = 50;
     bool internal constant STRATEGY_COUNTS_IN_NAV = true;
+    bool internal constant AUTOMATION_WEIGHT_ENABLED = false;
+    bool internal constant AUTOMATION_LTV_ENABLED = false;
+    uint16 internal constant AUTOMATION_MAX_WEIGHT_BPS = 10000;
+    uint16 internal constant AUTOMATION_MIN_TARGET_LTV_BPS = 0;
+    uint16 internal constant AUTOMATION_MAX_TARGET_LTV_BPS = 7000;
+    uint16 internal constant AUTOMATION_MAX_WEIGHT_CHANGE_BPS = 10000;
+    uint16 internal constant AUTOMATION_MAX_LTV_CHANGE_BPS = 500;
+    uint32 internal constant AUTOMATION_COOLDOWN = 1 days;
 
     struct DeployConfig {
         address usdc;
@@ -47,6 +56,14 @@ contract Deploy is Script {
         uint256 maxSwapSlippageBps;
         address feeRecipient;
         bool strategyCountsInNav;
+        bool automationWeightEnabled;
+        bool automationLtvEnabled;
+        uint16 automationMaxWeightBps;
+        uint16 automationMinTargetLtvBps;
+        uint16 automationMaxTargetLtvBps;
+        uint16 automationMaxWeightChangeBps;
+        uint16 automationMaxLtvChangeBps;
+        uint32 automationCooldown;
     }
 
     function run() external {
@@ -66,7 +83,7 @@ contract Deploy is Script {
 
         LendingRouter lendingRouter = new LendingRouter(address(vault), config.aaveDataProvider, address(0));
         vault.setLendingRouter(address(lendingRouter));
-        StrategyRiskRegistry riskRegistry = new StrategyRiskRegistry(config.owner);
+        StrategyRiskRegistry riskRegistry = new StrategyRiskRegistry(msg.sender);
         vault.setStrategyRiskRegistry(address(riskRegistry));
         vault.setTargetBuffer(config.targetBufferBps);
         vault.setWithdrawalFeeBps(config.withdrawalFeeBps);
@@ -84,11 +101,25 @@ contract Deploy is Script {
                 config.pendleMarket
             );
             vault.setStrategyCountsInNav(strategyId, config.strategyCountsInNav);
+            riskRegistry.setAutomationConfig(
+                strategyId,
+                StrategyAutomationConfig({
+                    weightEnabled: config.automationWeightEnabled,
+                    ltvEnabled: config.automationLtvEnabled,
+                    maxWeightBps: config.automationMaxWeightBps,
+                    minTargetLtvBps: config.automationMinTargetLtvBps,
+                    maxTargetLtvBps: config.automationMaxTargetLtvBps,
+                    maxWeightChangeBps: config.automationMaxWeightChangeBps,
+                    maxLtvChangeBps: config.automationMaxLtvChangeBps,
+                    cooldown: config.automationCooldown
+                })
+            );
         }
 
         vault.setStrategist(config.strategist);
 
         if (config.owner != msg.sender) {
+            riskRegistry.transferOwnership(config.owner);
             vault.transferOwnership(config.owner);
         }
 
@@ -117,6 +148,14 @@ contract Deploy is Script {
         config.maxSwapSlippageBps = MAX_SWAP_SLIPPAGE_BPS;
         config.feeRecipient = config.owner;
         config.strategyCountsInNav = STRATEGY_COUNTS_IN_NAV;
+        config.automationWeightEnabled = AUTOMATION_WEIGHT_ENABLED;
+        config.automationLtvEnabled = AUTOMATION_LTV_ENABLED;
+        config.automationMaxWeightBps = AUTOMATION_MAX_WEIGHT_BPS;
+        config.automationMinTargetLtvBps = AUTOMATION_MIN_TARGET_LTV_BPS;
+        config.automationMaxTargetLtvBps = AUTOMATION_MAX_TARGET_LTV_BPS;
+        config.automationMaxWeightChangeBps = AUTOMATION_MAX_WEIGHT_CHANGE_BPS;
+        config.automationMaxLtvChangeBps = AUTOMATION_MAX_LTV_CHANGE_BPS;
+        config.automationCooldown = AUTOMATION_COOLDOWN;
 
         require(config.usdc != address(0), "set USDC");
         require(config.borrowAsset != address(0), "set BORROW_ASSET");

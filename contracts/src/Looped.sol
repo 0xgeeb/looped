@@ -10,7 +10,7 @@ import {ILooped} from "./interfaces/ILooped.sol";
 import {ILendingRouter, LendingVenue} from "./interfaces/ILendingRouter.sol";
 import {IPendleRouter, IPendleMarket, IPendleSy} from "./interfaces/IPendleRouter.sol";
 import {IPendleOracle} from "./interfaces/IPendleOracle.sol";
-import {IStrategyRiskRegistry, StrategyRiskConfig} from "./interfaces/IStrategyRiskRegistry.sol";
+import {IStrategyRiskRegistry, StrategyAutomationConfig, StrategyRiskConfig} from "./interfaces/IStrategyRiskRegistry.sol";
 
 /// @title Looped
 /// @author geeb
@@ -52,6 +52,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
     mapping(uint256 => bool) public strategyCountsInNav;
     mapping(uint256 => uint256) public accountedPtCollateral;
     mapping(uint256 => uint256) public accountedDebt;
+    mapping(uint256 => uint256) public lastStrategyAutomationAt;
     mapping(address => bool) public isSupportedUnderlying;
 
     modifier whenNotPaused() {
@@ -354,6 +355,65 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         }
 
         if (totalWeight != 10000) revert InvalidParams();
+        emit WeightsUpdated();
+    }
+
+    function applyStrategyAutomation(
+        uint256[] calldata strategyIds,
+        uint16[] calldata weights,
+        uint16[] calldata targetLtvBpsValues
+    ) external onlyStrategist nonReentrant whenNotPaused {
+        if (strategyIds.length != weights.length || strategyIds.length != targetLtvBpsValues.length) {
+            revert WeightsMismatch();
+        }
+        IStrategyRiskRegistry registry = strategyRiskRegistry;
+        if (address(registry) == address(0)) revert InvalidParams();
+
+        bool[] memory seen = new bool[](strategies.length);
+        uint16[] memory nextWeights = new uint16[](strategies.length);
+        uint16[] memory nextTargetLtvs = new uint16[](strategies.length);
+
+        for (uint256 i = 0; i < strategies.length; i++) {
+            if (!isRegisteredStrategy[i]) continue;
+            Strategy storage strategy = strategies[i];
+            nextWeights[i] = strategy.weightBps;
+            nextTargetLtvs[i] = strategy.targetLtvBps;
+        }
+
+        for (uint256 i = 0; i < strategyIds.length; i++) {
+            uint256 strategyId = strategyIds[i];
+            _validateStrategyId(strategyId);
+            if (seen[strategyId]) revert InvalidParams();
+            seen[strategyId] = true;
+
+            Strategy storage strategy = strategies[strategyId];
+            uint16 nextWeight = weights[i];
+            uint16 nextTargetLtv = targetLtvBpsValues[i];
+            _validateAutomatedStrategyUpdate(strategyId, strategy, nextWeight, nextTargetLtv, registry);
+
+            nextWeights[strategyId] = nextWeight;
+            nextTargetLtvs[strategyId] = nextTargetLtv;
+        }
+
+        uint256 totalWeight = 0;
+        for (uint256 i = 0; i < strategies.length; i++) {
+            if (isRegisteredStrategy[i]) totalWeight += nextWeights[i];
+        }
+        if (totalWeight != 10000) revert InvalidParams();
+
+        for (uint256 i = 0; i < strategyIds.length; i++) {
+            uint256 strategyId = strategyIds[i];
+            Strategy storage strategy = strategies[strategyId];
+            uint16 nextWeight = nextWeights[strategyId];
+            uint16 nextTargetLtv = nextTargetLtvs[strategyId];
+            if (strategy.weightBps != nextWeight || strategy.targetLtvBps != nextTargetLtv) {
+                lastStrategyAutomationAt[strategyId] = block.timestamp;
+            }
+            strategy.weightBps = nextWeight;
+            strategy.targetLtvBps = nextTargetLtv;
+
+            emit StrategyUpdated(strategyId, strategy.active, nextWeight);
+        }
         emit WeightsUpdated();
     }
 
@@ -834,6 +894,54 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             lendingRouter.getMaxLtv(strategyId, strategy.venue, strategy.lendingMarket, strategy.pt);
         uint256 bufferedMaxLtv = maxVenueLtv > config.ltvBufferBps ? maxVenueLtv - config.ltvBufferBps : 0;
         targetLtv = _min(targetLtv, bufferedMaxLtv);
+    }
+
+    function _validateAutomatedStrategyUpdate(
+        uint256 strategyId,
+        Strategy storage strategy,
+        uint16 nextWeight,
+        uint16 nextTargetLtv,
+        IStrategyRiskRegistry registry
+    ) internal view {
+        StrategyAutomationConfig memory automation = registry.automationConfig(strategyId);
+        StrategyRiskConfig memory risk = registry.riskConfig(strategyId);
+        bool weightChanged = strategy.weightBps != nextWeight;
+        bool ltvChanged = strategy.targetLtvBps != nextTargetLtv;
+
+        if (weightChanged && !automation.weightEnabled) revert InvalidParams();
+        if (ltvChanged && !automation.ltvEnabled) revert InvalidParams();
+        if (nextWeight > automation.maxWeightBps) revert InvalidParams();
+        if (nextTargetLtv < automation.minTargetLtvBps || nextTargetLtv > automation.maxTargetLtvBps) {
+            revert InvalidParams();
+        }
+
+        if (automation.maxWeightChangeBps > 0) {
+            uint256 weightDelta = strategy.weightBps > nextWeight
+                ? strategy.weightBps - nextWeight
+                : nextWeight - strategy.weightBps;
+            if (weightDelta > automation.maxWeightChangeBps) revert InvalidParams();
+        }
+        if (automation.maxLtvChangeBps > 0) {
+            uint256 ltvDelta = strategy.targetLtvBps > nextTargetLtv
+                ? strategy.targetLtvBps - nextTargetLtv
+                : nextTargetLtv - strategy.targetLtvBps;
+            if (ltvDelta > automation.maxLtvChangeBps) revert InvalidParams();
+        }
+        if ((weightChanged || ltvChanged) && automation.cooldown > 0) {
+            uint256 lastUpdatedAt = lastStrategyAutomationAt[strategyId];
+            if (lastUpdatedAt > 0 && block.timestamp < lastUpdatedAt + automation.cooldown) revert InvalidParams();
+        }
+
+        if (risk.riskEnabled) {
+            if (risk.staleAfter > 0 && block.timestamp > uint256(risk.updatedAt) + risk.staleAfter) {
+                if (nextTargetLtv != 0) revert InvalidParams();
+            }
+            if (nextTargetLtv > risk.ltvCapBps) revert InvalidParams();
+            uint256 maxVenueLtv =
+                lendingRouter.getMaxLtv(strategyId, strategy.venue, strategy.lendingMarket, strategy.pt);
+            uint256 bufferedMaxLtv = maxVenueLtv > risk.ltvBufferBps ? maxVenueLtv - risk.ltvBufferBps : 0;
+            if (nextTargetLtv > bufferedMaxLtv) revert InvalidParams();
+        }
     }
 
     function _min(uint256 a, uint256 b) internal pure returns (uint256) {

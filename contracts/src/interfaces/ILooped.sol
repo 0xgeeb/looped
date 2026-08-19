@@ -30,4 +30,10 @@ interface ILooped {
     event RolledOverToIdle(uint256 indexed strategyId, uint256 amount);
     event RolledInto(uint256 indexed strategyId, address indexed pendleMarket);
     event StrategyMarketSet(uint256 indexed strategyId, address indexed market, address pt);
+
+    function applyStrategyAutomation(
+        uint256[] calldata strategyIds,
+        uint16[] calldata weights,
+        uint16[] calldata targetLtvBpsValues
+    ) external;
 }
