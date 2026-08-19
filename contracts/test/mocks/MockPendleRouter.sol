@@ -27,19 +27,27 @@ contract MockPendleRouter is IPendleRouter {
         address,
         uint256 minPtOut,
         ApproxParams calldata,
-        TokenInput calldata input
-    ) external payable returns (uint256 netPtOut, uint256 netSyFee) {
+        TokenInput calldata input,
+        LimitOrderData calldata
+    ) external payable returns (uint256 netPtOut, uint256 netSyFee, uint256 netSyInterm) {
         // Convert USDC (6 dec) to PT (18 dec)
         netPtOut = input.netTokenIn * ptPerUsdc;
         require(netPtOut >= minPtOut, "slippage");
         MockERC20(input.tokenIn).transferFrom(msg.sender, address(this), input.netTokenIn);
         MockERC20(ptToken).mint(receiver, netPtOut);
         netSyFee = 0;
+        netSyInterm = 0;
     }
 
-    function swapExactPtForToken(address receiver, address, uint256 exactPtIn, TokenOutput calldata output, uint256)
+    function swapExactPtForToken(
+        address receiver,
+        address,
+        uint256 exactPtIn,
+        TokenOutput calldata output,
+        LimitOrderData calldata
+    )
         external
-        returns (uint256 netTokenOut, uint256 netSyFee)
+        returns (uint256 netTokenOut, uint256 netSyFee, uint256 netSyInterm)
     {
         lastTokenRedeemSy = output.tokenRedeemSy;
         lastTokenOut = output.tokenOut;
@@ -49,11 +57,12 @@ contract MockPendleRouter is IPendleRouter {
         MockERC20(ptToken).transferFrom(msg.sender, address(this), exactPtIn);
         MockERC20(usdcToken).mint(receiver, netTokenOut);
         netSyFee = 0;
+        netSyInterm = 0;
     }
 
     function redeemPyToToken(address receiver, address, uint256 netPyIn, TokenOutput calldata output)
         external
-        returns (uint256 netTokenOut)
+        returns (uint256 netTokenOut, uint256 netSyRedeemed)
     {
         lastTokenRedeemSy = output.tokenRedeemSy;
         lastTokenOut = output.tokenOut;
@@ -62,5 +71,6 @@ contract MockPendleRouter is IPendleRouter {
         require(netTokenOut >= output.minTokenOut, "slippage");
         MockERC20(ptToken).transferFrom(msg.sender, address(this), netPyIn);
         MockERC20(usdcToken).mint(receiver, netTokenOut);
+        netSyRedeemed = 0;
     }
 }

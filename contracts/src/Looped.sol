@@ -659,13 +659,14 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             maxIteration: 256,
             eps: 1e15
         });
+        IPendleRouter.LimitOrderData memory limit;
 
         (, address pt,) = IPendleMarket(market).readTokens();
         uint256 ptRate = pendleOracle.getPtToAssetRate(market, twapDuration);
         uint256 expectedPtOut = _assetToPt(_tokenToAssetAmount(tokenAmount, tokenIn), pt, ptRate);
         uint256 minPtOut = expectedPtOut * (10000 - maxSwapSlippageBps) / 10000;
 
-        (ptOut,) = pendleRouter.swapExactTokenForPt(address(this), market, minPtOut, guess, input);
+        (ptOut,,) = pendleRouter.swapExactTokenForPt(address(this), market, minPtOut, guess, input, limit);
     }
 
     function _swapPtToToken(uint256 ptAmount, uint256 strategyId, address tokenOut, uint256 expectedAssetOut)
@@ -694,9 +695,11 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         });
 
         if (block.timestamp >= expiry) {
-            tokenOutAmount = pendleRouter.redeemPyToToken(address(this), strategy.yt, ptAmount, output);
+            (tokenOutAmount,) = pendleRouter.redeemPyToToken(address(this), strategy.yt, ptAmount, output);
         } else {
-            (tokenOutAmount,) = pendleRouter.swapExactPtForToken(address(this), strategy.pendleMarket, ptAmount, output, 0);
+            IPendleRouter.LimitOrderData memory limit;
+            (tokenOutAmount,,) =
+                pendleRouter.swapExactPtForToken(address(this), strategy.pendleMarket, ptAmount, output, limit);
         }
     }
 

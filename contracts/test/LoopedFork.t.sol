@@ -13,7 +13,7 @@ import { IPendleMarket, IPendleSy } from "../src/interfaces/IPendleRouter.sol";
 contract LoopedForkTest is Test {
 
 
-    address USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
+    address USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address AAVEV3Pool = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
     address MAINNET_AAVE_DATA_PROVIDER = 0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3;
     address MAINNET_PENDLE_ROUTER = 0x888888888889758F76e7103c6CbF23ABbF58F946;
@@ -102,8 +102,8 @@ contract LoopedForkTest is Test {
         address pendleOracle;
         address lendingRouter;
 
-        asset = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-        borrowAsset = USDT;
+        asset = USDC;
+        borrowAsset = USDC;
         pendleRouter = MAINNET_PENDLE_ROUTER;
         pendleOracle = MAINNET_PENDLE_ORACLE;
         pendleMarket = MAINNET_PENDLE_MARKET;
