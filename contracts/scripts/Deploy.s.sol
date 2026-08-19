@@ -23,6 +23,10 @@ contract Deploy is Script {
     uint16 internal constant TARGET_LTV_BPS = 7000;
     uint8 internal constant TARGET_LOOPS = 3;
     uint256 internal constant MIN_HEALTH_FACTOR = 1.15e18;
+    uint256 internal constant TARGET_BUFFER_BPS = 500;
+    uint256 internal constant WITHDRAWAL_FEE_BPS = 5;
+    uint256 internal constant MAX_SWAP_SLIPPAGE_BPS = 50;
+    bool internal constant STRATEGY_COUNTS_IN_NAV = true;
 
     struct DeployConfig {
         address usdc;
@@ -38,6 +42,11 @@ contract Deploy is Script {
         uint16 targetLtvBps;
         uint8 targetLoops;
         uint256 minHealthFactor;
+        uint256 targetBufferBps;
+        uint256 withdrawalFeeBps;
+        uint256 maxSwapSlippageBps;
+        address feeRecipient;
+        bool strategyCountsInNav;
     }
 
     function run() external {
@@ -59,9 +68,13 @@ contract Deploy is Script {
         vault.setLendingRouter(address(lendingRouter));
         StrategyRiskRegistry riskRegistry = new StrategyRiskRegistry(config.owner);
         vault.setStrategyRiskRegistry(address(riskRegistry));
+        vault.setTargetBuffer(config.targetBufferBps);
+        vault.setWithdrawalFeeBps(config.withdrawalFeeBps);
+        vault.setFeeRecipient(config.feeRecipient);
+        vault.setMaxSwapSlippageBps(config.maxSwapSlippageBps);
 
         if (config.pendleMarket != address(0)) {
-            vault.addStrategy(
+            uint256 strategyId = vault.addStrategy(
                 10000,
                 config.targetLtvBps,
                 config.targetLoops,
@@ -70,6 +83,7 @@ contract Deploy is Script {
                 config.borrowAsset,
                 config.pendleMarket
             );
+            vault.setStrategyCountsInNav(strategyId, config.strategyCountsInNav);
         }
 
         vault.setStrategist(config.strategist);
@@ -98,6 +112,11 @@ contract Deploy is Script {
         config.targetLtvBps = TARGET_LTV_BPS;
         config.targetLoops = TARGET_LOOPS;
         config.minHealthFactor = MIN_HEALTH_FACTOR;
+        config.targetBufferBps = TARGET_BUFFER_BPS;
+        config.withdrawalFeeBps = WITHDRAWAL_FEE_BPS;
+        config.maxSwapSlippageBps = MAX_SWAP_SLIPPAGE_BPS;
+        config.feeRecipient = config.owner;
+        config.strategyCountsInNav = STRATEGY_COUNTS_IN_NAV;
 
         require(config.usdc != address(0), "set USDC");
         require(config.borrowAsset != address(0), "set BORROW_ASSET");
@@ -128,6 +147,11 @@ contract Deploy is Script {
         console.log("target ltv bps:", config.targetLtvBps);
         console.log("target loops:", config.targetLoops);
         console.log("min health factor:", config.minHealthFactor);
+        console.log("target buffer bps:", config.targetBufferBps);
+        console.log("withdrawal fee bps:", config.withdrawalFeeBps);
+        console.log("max swap slippage bps:", config.maxSwapSlippageBps);
+        console.log("fee recipient:", config.feeRecipient);
+        console.log("strategy counts in nav:", config.strategyCountsInNav);
         console.log("verify: owner, strategist, router, weights, market metadata, pause state, and launch limits");
     }
 
@@ -147,6 +171,11 @@ contract Deploy is Script {
         json = vm.serializeAddress(object, "aavePool", config.aavePool);
         json = vm.serializeAddress(object, "strategist", config.strategist);
         json = vm.serializeAddress(object, "owner", config.owner);
+        json = vm.serializeAddress(object, "feeRecipient", config.feeRecipient);
+        json = vm.serializeUint(object, "targetBufferBps", config.targetBufferBps);
+        json = vm.serializeUint(object, "withdrawalFeeBps", config.withdrawalFeeBps);
+        json = vm.serializeUint(object, "maxSwapSlippageBps", config.maxSwapSlippageBps);
+        json = vm.serializeBool(object, "strategyCountsInNav", config.strategyCountsInNav);
         json = vm.serializeUint(object, "deployBlock", block.number);
         vm.writeJson(json, "deployment-output.json");
     }
