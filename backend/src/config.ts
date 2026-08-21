@@ -18,6 +18,10 @@ export type BackendConfig = {
   migrationCooldownMs: number;
   yieldzUrl: string;
   keeperLogPath: string;
+  pendleRouteApiUrl: string;
+  pendleRouteSlippage: number;
+  pendleRouteOverquoteBps: number;
+  pendleRouteMaxCount: number;
 };
 
 const PRIVATE_KEY_REGEX = /^0x[0-9a-fA-F]{64}$/;
@@ -80,6 +84,12 @@ export const validateConfig = (env: NodeJS.ProcessEnv = process.env): BackendCon
     // Rate scanner
     yieldzUrl: env.YIELDZ_URL || "https://yieldz.io/borrow",
     keeperLogPath: env.KEEPER_LOG_PATH || "data/keeper.log",
+
+    // Pendle route builder
+    pendleRouteApiUrl: env.PENDLE_ROUTE_API_URL || "https://api-v2.pendle.finance/core/v3/sdk",
+    pendleRouteSlippage: readNumber(env, "PENDLE_ROUTE_SLIPPAGE", 0.01, errors),
+    pendleRouteOverquoteBps: readNumber(env, "PENDLE_ROUTE_OVERQUOTE_BPS", 200, errors),
+    pendleRouteMaxCount: readNumber(env, "PENDLE_ROUTE_MAX_COUNT", 64, errors),
   } satisfies BackendConfig;
 
   if (errors.length > 0) {

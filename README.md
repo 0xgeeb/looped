@@ -80,6 +80,8 @@ Keeper automation:
 
 - During the testing stage, keeper rate optimization is read-only and logs recommendations.
 - Owner governance changes strategy weights and target LTV with vault owner functions.
+- `deployIdle` and `rebalance` build fresh Pendle routes from the Pendle route API before they send a vault transaction.
+- Optional keeper route settings: `PENDLE_ROUTE_API_URL`, `PENDLE_ROUTE_SLIPPAGE`, `PENDLE_ROUTE_OVERQUOTE_BPS`, and `PENDLE_ROUTE_MAX_COUNT`.
 - The PT risk article findings stay documented in `docs/article.txt`, `docs/pt-risk-methodology.md`, and `docs/pt-risk-methodology-notes.md`.
 - Revisit bounded strategist-applied weight and LTV automation before production deposits.
 - Keeper maturity handling rolls mature strategies to idle.

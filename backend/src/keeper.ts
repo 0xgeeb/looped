@@ -67,35 +67,6 @@ type PendleTokenInput = {
   };
 };
 
-const readRouteAddress = (name: string, fallback = ZERO_ADDRESS): Address => {
-  const value = process.env[name] ?? fallback;
-  if (!/^0x[a-fA-F0-9]{40}$/.test(value)) {
-    throw new Error(`${name} must be an address`);
-  }
-  return value as Address;
-};
-
-const buildPendleRoutes = (tokenIn: Address, count = 16): PendleTokenInput[] => {
-  const tokenMintSy = readRouteAddress("PENDLE_TOKEN_MINT_SY");
-  const pendleSwap = readRouteAddress("PENDLE_SWAP");
-  const extRouter = readRouteAddress("PENDLE_EXT_ROUTER");
-  const extCalldata = (process.env.PENDLE_EXT_CALLDATA ?? "0x") as `0x${string}`;
-  const swapType = Number(process.env.PENDLE_SWAP_TYPE ?? "0");
-  const needScale = (process.env.PENDLE_NEED_SCALE ?? "false") === "true";
-
-  if (!/^0x([a-fA-F0-9]{2})*$/.test(extCalldata)) {
-    throw new Error("PENDLE_EXT_CALLDATA must be hex bytes");
-  }
-
-  return Array.from({ length: count }, () => ({
-    tokenIn,
-    netTokenIn: 0n,
-    tokenMintSy,
-    pendleSwap,
-    swapData: { swapType, extRouter, extCalldata, needScale },
-  }));
-};
-
 const account = privateKeyToAccount(config.privateKey);
 const vault = config.vaultAddress;
 
@@ -211,6 +182,66 @@ const asLogNumber = (value: bigint | number | string | boolean | null) =>
 
 const toNumber = (value: number | bigint) =>
   typeof value === "bigint" ? Number(value) : value;
+
+const isHexBytes = (value: unknown): value is `0x${string}` =>
+  typeof value === "string" && /^0x([a-fA-F0-9]{2})*$/.test(value);
+
+const normalizeRouteAddress = (value: unknown, name: string): Address => {
+  if (typeof value !== "string" || !/^0x[a-fA-F0-9]{40}$/.test(value)) {
+    throw new Error(`Pendle route ${name} is not an address`);
+  }
+  return value as Address;
+};
+
+const normalizeSwapType = (value: unknown) => {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > 255) {
+    throw new Error(`Pendle route swapType is invalid: ${String(value)}`);
+  }
+  return n;
+};
+
+const normalizePendleInput = (input: unknown): PendleTokenInput => {
+  if (Array.isArray(input)) {
+    const swapData = input[4];
+    if (!Array.isArray(swapData)) throw new Error("Pendle route swapData is missing");
+    const extCalldata = swapData[2];
+    if (!isHexBytes(extCalldata)) throw new Error("Pendle route extCalldata is not bytes");
+    return {
+      tokenIn: normalizeRouteAddress(input[0], "tokenIn"),
+      netTokenIn: BigInt(input[1] ?? 0),
+      tokenMintSy: normalizeRouteAddress(input[2], "tokenMintSy"),
+      pendleSwap: normalizeRouteAddress(input[3], "pendleSwap"),
+      swapData: {
+        swapType: normalizeSwapType(swapData[0]),
+        extRouter: normalizeRouteAddress(swapData[1], "extRouter"),
+        extCalldata,
+        needScale: Boolean(swapData[3]),
+      },
+    };
+  }
+
+  if (!input || typeof input !== "object") throw new Error("Pendle route input is missing");
+  const route = input as Record<string, unknown>;
+  const swapData = route.swapData;
+  if (!swapData || typeof swapData !== "object") throw new Error("Pendle route swapData is missing");
+  const swap = swapData as Record<string, unknown>;
+  const extCalldata = swap.extCalldata;
+  if (!isHexBytes(extCalldata)) throw new Error("Pendle route extCalldata is not bytes");
+
+  return {
+    tokenIn: normalizeRouteAddress(route.tokenIn, "tokenIn"),
+    netTokenIn: BigInt(route.netTokenIn as string | number | bigint),
+    tokenMintSy: normalizeRouteAddress(route.tokenMintSy, "tokenMintSy"),
+    pendleSwap: normalizeRouteAddress(route.pendleSwap, "pendleSwap"),
+    swapData: {
+      swapType: normalizeSwapType(swap.swapType),
+      extRouter: normalizeRouteAddress(swap.extRouter, "extRouter"),
+      extCalldata,
+      needScale: Boolean(swap.needScale),
+    },
+  };
+};
 
 const normalizeMatchText = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -395,6 +426,115 @@ const getConfiguredStrategies = async (): Promise<Strategy[]> => {
   }
 
   return results;
+};
+
+const quotePendleRoute = async (
+  tokenIn: Address,
+  tokenOut: Address,
+  amountIn: bigint,
+): Promise<PendleTokenInput> => {
+  if (amountIn <= 0n) throw new Error("Pendle route amount must be positive");
+
+  const overquoteBps = BigInt(Math.trunc(config.pendleRouteOverquoteBps));
+  const quotedAmount = amountIn * (10_000n + overquoteBps) / 10_000n;
+  const response = await fetch(`${config.pendleRouteApiUrl}/${mainnet.id}/convert`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      receiver: vault,
+      slippage: config.pendleRouteSlippage,
+      enableAggregator: true,
+      aggregators: ["kyberswap", "okx", "paraswap"],
+      inputs: [{ token: tokenIn, amount: quotedAmount.toString() }],
+      outputs: [tokenOut],
+      needScale: true,
+      useLimitOrder: false,
+    }),
+  });
+
+  const json = await response.json().catch(() => undefined) as Record<string, unknown> | undefined;
+  if (!response.ok) {
+    throw new Error(`Pendle route API failed ${response.status}: ${JSON.stringify(json)}`);
+  }
+
+  const routes = json?.routes;
+  const firstRoute = Array.isArray(routes) ? routes[0] as Record<string, unknown> | undefined : undefined;
+  const info = firstRoute?.contractParamInfo as Record<string, unknown> | undefined;
+  if (!info) throw new Error(`Pendle route response is missing contractParamInfo: ${JSON.stringify(json)}`);
+  if (info.method !== "swapExactTokenForPt") {
+    throw new Error(`unexpected Pendle route method: ${String(info.method)}`);
+  }
+
+  const names = info.contractCallParamsName;
+  const params = info.contractCallParams;
+  if (!Array.isArray(params)) throw new Error("Pendle route call params are missing");
+  const inputIndex = Array.isArray(names) ? names.findIndex((name) => name === "input") : -1;
+  const input = normalizePendleInput(params[inputIndex >= 0 ? inputIndex : 4]);
+
+  if (input.tokenIn.toLowerCase() !== tokenIn.toLowerCase()) {
+    throw new Error(`Pendle route tokenIn mismatch: ${input.tokenIn}`);
+  }
+
+  return input;
+};
+
+const getDeployableAssets = async () => {
+  const asset = await readVault("asset") as Address;
+  const idle = await publicClient.readContract({
+    address: asset,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [vault],
+  });
+  const totalAssets = await readVault("totalAssets") as bigint;
+  const targetBufferBps = await readVault("targetBuffer") as bigint;
+  const bufferTarget = totalAssets * targetBufferBps / 10000n;
+
+  return {
+    asset,
+    idle,
+    totalAssets,
+    bufferTarget,
+    deployable: idle > bufferTarget ? idle - bufferTarget : 0n,
+  };
+};
+
+const buildPendleRoutes = async (asset: Address, amount: bigint): Promise<PendleTokenInput[]> => {
+  if (amount <= 0n) return [];
+
+  const strategies = (await getActiveStrategies()).filter(
+    (strategy) => strategy.pendleMarket !== ZERO_ADDRESS && strategy.pt !== ZERO_ADDRESS,
+  );
+  if (strategies.length === 0) return [];
+
+  const routeCount = strategies.reduce((sum, strategy) => sum + strategy.targetLoops + 1, 0);
+  if (routeCount > config.pendleRouteMaxCount) {
+    throw new Error(`Pendle route count ${routeCount} exceeds max ${config.pendleRouteMaxCount}`);
+  }
+
+  const routes: PendleTokenInput[] = [];
+  let deployed = 0n;
+  const lastStrategyId = strategies[strategies.length - 1]?.id;
+
+  for (const strategy of strategies) {
+    const share = strategy.id === lastStrategyId ? amount - deployed : amount * strategy.weightBps / 10000n;
+    if (share <= 0n) continue;
+
+    const initialRoute = await quotePendleRoute(asset, strategy.pt, share);
+    routes.push(initialRoute);
+
+    if (strategy.targetLoops > 0) {
+      const loopRoute = strategy.borrowAsset.toLowerCase() === asset.toLowerCase()
+        ? initialRoute
+        : await quotePendleRoute(strategy.borrowAsset, strategy.pt, share);
+      for (let i = 0; i < strategy.targetLoops; i++) {
+        routes.push(loopRoute);
+      }
+    }
+    deployed += share;
+  }
+
+  return routes;
 };
 
 const readTokenSymbol = async (token: Address) => {
@@ -625,12 +765,18 @@ const callDeployIdle = async () => {
       return;
     }
 
-    const asset = (await publicClient.readContract({
-      address: vault,
-      abi: vaultAbi,
-      functionName: "asset",
-    })) as Address;
-    const routes = buildPendleRoutes(asset);
+    const { asset, deployable } = await getDeployableAssets();
+    const routes = await buildPendleRoutes(asset, deployable);
+    if (routes.length === 0) {
+      console.log("[keeper:deployIdle] skipped: no active routes");
+      logKeeperEvent({
+        job: "deployIdle",
+        level: "skip",
+        action: "no_routes",
+        message: "no active Pendle routes",
+      });
+      return;
+    }
     const hash = await walletClient.writeContract({
       chain: mainnet,
       address: vault,
@@ -658,12 +804,8 @@ const callRebalance = async (job: JobName = "healthCheck") => {
       return;
     }
 
-    const asset = (await publicClient.readContract({
-      address: vault,
-      abi: vaultAbi,
-      functionName: "asset",
-    })) as Address;
-    const routes = buildPendleRoutes(asset);
+    const { asset, deployable } = await getDeployableAssets();
+    const routes = await buildPendleRoutes(asset, deployable);
     const hash = await walletClient.writeContract({
       chain: mainnet,
       address: vault,
@@ -744,17 +886,7 @@ const checkAndDeployIdle = async () => {
     return;
   }
 
-  const asset = await readVault("asset") as Address;
-  const idle = await publicClient.readContract({
-    address: asset,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [vault],
-  });
-
-  const totalAssets = await readVault("totalAssets") as bigint;
-  const targetBufferBps = await readVault("targetBuffer") as bigint;
-  const bufferTarget = totalAssets * targetBufferBps / 10000n;
+  const { idle, totalAssets, bufferTarget } = await getDeployableAssets();
 
   if (totalAssets === 0n) {
     logKeeperEvent({
