@@ -7,7 +7,7 @@ import { Looped } from "../src/Looped.sol";
 import { LendingRouter } from "../src/LendingRouter.sol";
 import { LendingVenue } from "../src/interfaces/ILendingRouter.sol";
 import { IPendleOracle } from "../src/interfaces/IPendleOracle.sol";
-import { IPendleMarket, IPendleSy } from "../src/interfaces/IPendleRouter.sol";
+import { IPendleMarket, IPendleRouter, IPendleSy } from "../src/interfaces/IPendleRouter.sol";
 
 
 contract LoopedForkTest is Test {
@@ -80,7 +80,7 @@ contract LoopedForkTest is Test {
         _logState("after deposit");
 
         vm.prank(strategist);
-        vault.deployIdle();
+        vault.deployIdle(_routes(16));
         _logState("after deployIdle");
 
         // vm.prank(user);
@@ -91,7 +91,7 @@ contract LoopedForkTest is Test {
         // _logState("after withdraw");
 
         // vm.prank(strategist);
-        // vault.rebalance();
+        // vault.rebalance(_routes(16));
         // _logState("after rebalance");
     }
 
@@ -154,6 +154,19 @@ contract LoopedForkTest is Test {
 
     function _assertMainnetContract(address target) internal view {
         assertGt(target.code.length, 0, "expected mainnet contract");
+    }
+
+    function _routes(uint256 count) internal returns (IPendleRouter.TokenInput[] memory routes) {
+        string[] memory command = new string[](8);
+        command[0] = "node";
+        command[1] = "scripts/pendle-route.mjs";
+        command[2] = vm.toString(block.chainid);
+        command[3] = vm.toString(borrowAsset);
+        command[4] = vm.toString(pt);
+        command[5] = vm.toString(DEPOSIT_ASSETS - (DEPOSIT_ASSETS * vault.targetBuffer() / 10000));
+        command[6] = vm.toString(address(vault));
+        command[7] = vm.toString(count);
+        routes = abi.decode(vm.ffi(command), (IPendleRouter.TokenInput[]));
     }
 
     function _logState(string memory label) internal view {

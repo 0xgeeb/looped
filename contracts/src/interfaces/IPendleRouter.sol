@@ -72,8 +72,15 @@ interface IPendleRouter {
     enum SwapType {
         NONE,
         KYBERSWAP,
+        ODOS,
+        ETH_WETH,
+        OKX,
         ONE_INCH,
-        ETH_WETH
+        PARASWAP,
+        RESERVE_2,
+        RESERVE_3,
+        RESERVE_4,
+        RESERVE_5
     }
 
     function swapExactTokenForPt(

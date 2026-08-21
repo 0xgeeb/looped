@@ -30,8 +30,8 @@ const vaultAbi = parseAbi([
   "function twapDuration() view returns (uint32)",
   "function asset() view returns (address)",
   "function strategist() view returns (address)",
-  "function deployIdle()",
-  "function rebalance()",
+  "function deployIdle((address tokenIn,uint256 netTokenIn,address tokenMintSy,address pendleSwap,(uint8 swapType,address extRouter,bytes extCalldata,bool needScale) swapData)[] routes)",
+  "function rebalance((address tokenIn,uint256 netTokenIn,address tokenMintSy,address pendleSwap,(uint8 swapType,address extRouter,bytes extCalldata,bool needScale) swapData)[] routes)",
   "function rolloverToIdle(uint256 strategyId)",
 ]);
 
@@ -53,6 +53,48 @@ const pendleMarketAbi = parseAbi([
 const pendleOracleAbi = parseAbi([
   "function getPtToAssetRate(address market, uint32 duration) view returns (uint256)",
 ]);
+
+type PendleTokenInput = {
+  tokenIn: Address;
+  netTokenIn: bigint;
+  tokenMintSy: Address;
+  pendleSwap: Address;
+  swapData: {
+    swapType: number;
+    extRouter: Address;
+    extCalldata: `0x${string}`;
+    needScale: boolean;
+  };
+};
+
+const readRouteAddress = (name: string, fallback = ZERO_ADDRESS): Address => {
+  const value = process.env[name] ?? fallback;
+  if (!/^0x[a-fA-F0-9]{40}$/.test(value)) {
+    throw new Error(`${name} must be an address`);
+  }
+  return value as Address;
+};
+
+const buildPendleRoutes = (tokenIn: Address, count = 16): PendleTokenInput[] => {
+  const tokenMintSy = readRouteAddress("PENDLE_TOKEN_MINT_SY");
+  const pendleSwap = readRouteAddress("PENDLE_SWAP");
+  const extRouter = readRouteAddress("PENDLE_EXT_ROUTER");
+  const extCalldata = (process.env.PENDLE_EXT_CALLDATA ?? "0x") as `0x${string}`;
+  const swapType = Number(process.env.PENDLE_SWAP_TYPE ?? "0");
+  const needScale = (process.env.PENDLE_NEED_SCALE ?? "false") === "true";
+
+  if (!/^0x([a-fA-F0-9]{2})*$/.test(extCalldata)) {
+    throw new Error("PENDLE_EXT_CALLDATA must be hex bytes");
+  }
+
+  return Array.from({ length: count }, () => ({
+    tokenIn,
+    netTokenIn: 0n,
+    tokenMintSy,
+    pendleSwap,
+    swapData: { swapType, extRouter, extCalldata, needScale },
+  }));
+};
 
 const account = privateKeyToAccount(config.privateKey);
 const vault = config.vaultAddress;
@@ -583,11 +625,18 @@ const callDeployIdle = async () => {
       return;
     }
 
+    const asset = (await publicClient.readContract({
+      address: vault,
+      abi: vaultAbi,
+      functionName: "asset",
+    })) as Address;
+    const routes = buildPendleRoutes(asset);
     const hash = await walletClient.writeContract({
       chain: mainnet,
       address: vault,
       abi: vaultAbi,
       functionName: "deployIdle",
+      args: [routes],
     });
     await waitForHash("deployIdle", hash);
   } catch (err) {
@@ -609,11 +658,18 @@ const callRebalance = async (job: JobName = "healthCheck") => {
       return;
     }
 
+    const asset = (await publicClient.readContract({
+      address: vault,
+      abi: vaultAbi,
+      functionName: "asset",
+    })) as Address;
+    const routes = buildPendleRoutes(asset);
     const hash = await walletClient.writeContract({
       chain: mainnet,
       address: vault,
       abi: vaultAbi,
       functionName: "rebalance",
+      args: [routes],
     });
     await waitForHash(job, hash);
   } catch (err) {

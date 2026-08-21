@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Looped} from "../src/Looped.sol";
 import {ILooped} from "../src/interfaces/ILooped.sol";
 import {LendingVenue} from "../src/interfaces/ILendingRouter.sol";
+import {IPendleRouter} from "../src/interfaces/IPendleRouter.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockLendingRouter} from "./mocks/MockLendingRouter.sol";
 import {MockPendleRouter} from "./mocks/MockPendleRouter.sol";
@@ -63,7 +64,25 @@ contract LoopedTest is Test {
         vault.deposit(amount, alice);
 
         vm.prank(strategist);
-        vault.deployIdle();
+        vault.deployIdle(_routes(16));
+    }
+
+    function _routes(uint256 count) internal view returns (IPendleRouter.TokenInput[] memory routes) {
+        routes = new IPendleRouter.TokenInput[](count);
+        for (uint256 i = 0; i < count; i++) {
+            routes[i] = IPendleRouter.TokenInput({
+                tokenIn: address(usdc),
+                netTokenIn: 0,
+                tokenMintSy: address(usdc),
+                pendleSwap: address(0),
+                swapData: IPendleRouter.SwapData({
+                    swapType: IPendleRouter.SwapType.NONE,
+                    extRouter: address(0),
+                    extCalldata: "",
+                    needScale: false
+                })
+            });
+        }
     }
 
     function test_depositLandsIdle() public {
@@ -92,7 +111,7 @@ contract LoopedTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(ILooped.OnlyStrategist.selector);
-        vault.deployIdle();
+        vault.deployIdle(_routes(16));
     }
 
     function test_deployIdleDoesNotBorrowAboveTarget() public {
@@ -108,7 +127,7 @@ contract LoopedTest is Test {
         vault.deposit(100e6, bob);
 
         vm.prank(strategist);
-        vault.deployIdle();
+        vault.deployIdle(_routes(16));
 
         assertEq(lendingRouter.debt(0, address(usdc)), debtBefore, "debt unchanged");
         assertGt(lendingRouter.collateral(0, address(pt)), collateralBefore, "collateral increased");
@@ -122,7 +141,7 @@ contract LoopedTest is Test {
 
         vm.prank(strategist);
         vm.expectRevert(bytes("slippage"));
-        vault.deployIdle();
+        vault.deployIdle(_routes(16));
     }
 
     function test_withdrawFromBuffer() public {
@@ -286,7 +305,7 @@ contract LoopedTest is Test {
         uint256 totalBefore = vault.totalAssets();
 
         vm.prank(strategist);
-        vault.rebalance();
+        vault.rebalance(_routes(16));
 
         assertApproxEqAbs(vault.totalAssets(), totalBefore, 1e6, "preserved");
     }
@@ -296,7 +315,7 @@ contract LoopedTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(ILooped.OnlyStrategist.selector);
-        vault.rebalance();
+        vault.rebalance(_routes(16));
     }
 
     function test_deployIdleSplitsAcrossStrategies() public {
@@ -316,7 +335,7 @@ contract LoopedTest is Test {
         vault.deposit(1000e6, alice);
 
         vm.prank(strategist);
-        vault.deployIdle();
+        vault.deployIdle(_routes(16));
 
         assertGt(lendingRouter.collateral(0, address(pt)), 0, "strategy 0");
         assertGt(lendingRouter.collateral(1, address(pt)), 0, "strategy 1");
@@ -342,12 +361,12 @@ contract LoopedTest is Test {
             new MockPendleMarket(address(otherSy), address(pt), address(yt), block.timestamp + 30 days);
 
         vault.setSupportedUnderlying(address(otherUnderlying), true);
-        vault.rollInto(0, address(otherMarket));
+        vault.rollInto(0, address(otherMarket), _routes(16));
 
         vm.prank(alice);
         vault.deposit(1000e6, alice);
         vm.prank(strategist);
-        vault.deployIdle();
+        vault.deployIdle(_routes(16));
 
         vm.warp(block.timestamp + 31 days);
         vm.prank(strategist);
@@ -370,7 +389,7 @@ contract LoopedTest is Test {
         MockPendleMarket market2 =
             new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 60 days);
 
-        vault.rollInto(0, address(market2));
+        vault.rollInto(0, address(market2), _routes(16));
 
         (,,,,,,, address market,,,,) = vault.strategies(0);
         assertEq(market, address(market2), "market");
@@ -385,19 +404,19 @@ contract LoopedTest is Test {
             new MockPendleMarket(address(otherSy), address(pt), address(yt), block.timestamp + 30 days);
 
         vm.expectRevert(ILooped.UnsupportedUnderlying.selector);
-        vault.rollInto(0, address(otherMarket));
+        vault.rollInto(0, address(otherMarket), _routes(16));
     }
 
     function test_rollIntoRejectsExpiredMarket() public {
         MockPendleMarket expiredMarket = new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp);
 
         vm.expectRevert(ILooped.InvalidParams.selector);
-        vault.rollInto(0, address(expiredMarket));
+        vault.rollInto(0, address(expiredMarket), _routes(16));
     }
 
     function test_rollIntoRejectsMarketWithoutCode() public {
         vm.expectRevert(ILooped.InvalidParams.selector);
-        vault.rollInto(0, makeAddr("notMarket"));
+        vault.rollInto(0, makeAddr("notMarket"), _routes(16));
     }
 
     function test_addStrategyRejectsZeroPtMarket() public {
@@ -414,7 +433,7 @@ contract LoopedTest is Test {
         pendleOracle.setOracleState(true, 32, false);
 
         vm.expectRevert(ILooped.OracleNotReady.selector);
-        vault.rollInto(0, address(market2));
+        vault.rollInto(0, address(market2), _routes(16));
     }
 
     function test_addStrategyRejectsUnreadyOracle() public {
@@ -454,7 +473,7 @@ contract LoopedTest is Test {
         vm.prank(alice);
         vault.deposit(1000e6, alice);
 
-        vault.deployIdle();
+        vault.deployIdle(_routes(16));
 
         assertGt(lendingRouter.collateral(0, address(pt)), 0, "deployed");
     }
@@ -542,18 +561,6 @@ contract LoopedTest is Test {
         vault.removeStrategy(0);
 
         assertFalse(vault.isRegisteredStrategy(0), "removed");
-    }
-
-    function test_strategyCanBeExcludedFromNav() public {
-        _depositAndDeploy(1000e6);
-
-        uint256 totalBefore = vault.totalAssets();
-        assertGt(totalBefore, usdc.balanceOf(address(vault)), "strategy counted");
-
-        vault.setStrategyCountsInNav(0, false);
-
-        assertFalse(vault.strategyCountsInNav(0), "nav flag");
-        assertEq(vault.totalAssets(), usdc.balanceOf(address(vault)), "excluded");
     }
 
     function test_setStrategyWeightsMustSumTo10000() public {

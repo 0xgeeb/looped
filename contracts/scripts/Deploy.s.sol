@@ -24,8 +24,6 @@ contract Deploy is Script {
     uint256 internal constant TARGET_BUFFER_BPS = 500;
     uint256 internal constant WITHDRAWAL_FEE_BPS = 5;
     uint256 internal constant MAX_SWAP_SLIPPAGE_BPS = 50;
-    bool internal constant STRATEGY_COUNTS_IN_NAV = true;
-
     struct DeployConfig {
         address usdc;
         address aavePool;
@@ -44,7 +42,6 @@ contract Deploy is Script {
         uint256 withdrawalFeeBps;
         uint256 maxSwapSlippageBps;
         address feeRecipient;
-        bool strategyCountsInNav;
     }
 
     function run() external {
@@ -70,7 +67,7 @@ contract Deploy is Script {
         vault.setMaxSwapSlippageBps(config.maxSwapSlippageBps);
 
         if (config.pendleMarket != address(0)) {
-            uint256 strategyId = vault.addStrategy(
+            vault.addStrategy(
                 10000,
                 config.targetLtvBps,
                 config.targetLoops,
@@ -79,7 +76,6 @@ contract Deploy is Script {
                 config.borrowAsset,
                 config.pendleMarket
             );
-            vault.setStrategyCountsInNav(strategyId, config.strategyCountsInNav);
         }
 
         vault.setStrategist(config.strategist);
@@ -112,8 +108,6 @@ contract Deploy is Script {
         config.withdrawalFeeBps = WITHDRAWAL_FEE_BPS;
         config.maxSwapSlippageBps = MAX_SWAP_SLIPPAGE_BPS;
         config.feeRecipient = config.owner;
-        config.strategyCountsInNav = STRATEGY_COUNTS_IN_NAV;
-
         require(config.usdc != address(0), "set USDC");
         require(config.borrowAsset != address(0), "set BORROW_ASSET");
         require(config.aavePool != address(0), "set AAVE_POOL");
@@ -143,7 +137,6 @@ contract Deploy is Script {
         console.log("withdrawal fee bps:", config.withdrawalFeeBps);
         console.log("max swap slippage bps:", config.maxSwapSlippageBps);
         console.log("fee recipient:", config.feeRecipient);
-        console.log("strategy counts in nav:", config.strategyCountsInNav);
         console.log("verify: owner, strategist, router, weights, market metadata, pause state, and launch limits");
     }
 
@@ -164,7 +157,6 @@ contract Deploy is Script {
         json = vm.serializeUint(object, "targetBufferBps", config.targetBufferBps);
         json = vm.serializeUint(object, "withdrawalFeeBps", config.withdrawalFeeBps);
         json = vm.serializeUint(object, "maxSwapSlippageBps", config.maxSwapSlippageBps);
-        json = vm.serializeBool(object, "strategyCountsInNav", config.strategyCountsInNav);
         json = vm.serializeUint(object, "deployBlock", block.number);
         vm.writeJson(json, "deployment-output.json");
     }

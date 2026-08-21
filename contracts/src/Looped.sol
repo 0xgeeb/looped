@@ -47,7 +47,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
     Strategy[] public strategies;
     mapping(uint256 => bool) public isRegisteredStrategy;
-    mapping(uint256 => bool) public strategyCountsInNav;
     mapping(uint256 => uint256) public accountedPtCollateral;
     mapping(uint256 => uint256) public accountedDebt;
     mapping(address => bool) public isSupportedUnderlying;
@@ -110,7 +109,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         uint256 net = ERC20(usdc).balanceOf(address(this));
         for (uint256 i = 0; i < strategies.length; i++) {
             if (!isRegisteredStrategy[i]) continue;
-            if (!strategyCountsInNav[i]) continue;
             Strategy storage strategy = strategies[i];
             if (strategy.pendleMarket == address(0)) continue;
 
@@ -187,19 +185,19 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         emit Withdraw(by, to, owner, assets, shares);
     }
 
-    function deployIdle() external onlyStrategist nonReentrant whenNotPaused {
+    function deployIdle(IPendleRouter.TokenInput[] calldata routes) external onlyStrategist nonReentrant whenNotPaused {
         uint256 idle = ERC20(usdc).balanceOf(address(this));
         uint256 total = totalAssets();
         uint256 bufferTarget = total * targetBuffer / 10000;
         if (idle <= bufferTarget) return;
 
         uint256 deployable = idle - bufferTarget;
-        _deployByWeight(deployable);
+        _deployByWeight(deployable, routes, 0);
 
         emit IdleDeployed(deployable);
     }
 
-    function rebalance() external onlyStrategist nonReentrant whenNotPaused {
+    function rebalance(IPendleRouter.TokenInput[] calldata routes) external onlyStrategist nonReentrant whenNotPaused {
         for (uint256 i = 0; i < strategies.length; i++) {
             if (!isRegisteredStrategy[i]) continue;
             Strategy storage strategy = strategies[i];
@@ -213,7 +211,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         uint256 idle = ERC20(usdc).balanceOf(address(this));
         uint256 bufferTarget = idle * targetBuffer / 10000;
         uint256 deployable = idle > bufferTarget ? idle - bufferTarget : 0;
-        if (deployable > 0) _deployByWeight(deployable);
+        if (deployable > 0) _deployByWeight(deployable, routes, 0);
 
         emit Rebalanced();
     }
@@ -238,11 +236,21 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         emit RolledOverToIdle(strategyId, freed);
     }
 
-    function rollInto(uint256 strategyId, address pendleMarket) external onlyOwner nonReentrant whenNotPaused {
-        _rollInto(strategyId, pendleMarket);
+    function rollInto(uint256 strategyId, address pendleMarket, IPendleRouter.TokenInput[] calldata routes)
+        external
+        onlyOwner
+        nonReentrant
+        whenNotPaused
+    {
+        _rollInto(strategyId, pendleMarket, routes, 0);
     }
 
-    function _rollInto(uint256 strategyId, address pendleMarket) internal {
+    function _rollInto(
+        uint256 strategyId,
+        address pendleMarket,
+        IPendleRouter.TokenInput[] calldata routes,
+        uint256 routeIndex
+    ) internal returns (uint256 routesUsed) {
         _validateStrategyId(strategyId);
         Strategy storage strategy = strategies[strategyId];
 
@@ -269,13 +277,13 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         uint256 idle = ERC20(usdc).balanceOf(address(this));
         uint256 total = totalAssets();
         uint256 bufferTarget = total * targetBuffer / 10000;
-        if (idle <= bufferTarget) return;
+        if (idle <= bufferTarget) return routeIndex;
 
         uint256 deployable = idle - bufferTarget;
         uint256 strategyShare = strategy.weightBps == 10000 ? deployable : deployable * strategy.weightBps / 10000;
-        if (strategyShare == 0) return;
+        if (strategyShare == 0) return routeIndex;
 
-        _loop(strategyShare, strategyId);
+        routesUsed = _loop(strategyShare, strategyId, routes, routeIndex);
 
         emit RolledInto(strategyId, pendleMarket);
     }
@@ -329,7 +337,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         if (col > 0 || dbt > 0) revert InvalidParams();
 
         isRegisteredStrategy[strategyId] = false;
-        strategyCountsInNav[strategyId] = false;
         strategy.active = false;
         strategy.borrowAsset = address(0);
         strategy.pendleMarket = address(0);
@@ -357,12 +364,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
         if (totalWeight != 10000) revert InvalidParams();
         emit WeightsUpdated();
-    }
-
-    function setStrategyCountsInNav(uint256 strategyId, bool countsInNav) external onlyOwner {
-        _validateStrategyId(strategyId);
-        strategyCountsInNav[strategyId] = countsInNav;
-        emit StrategyNavUpdated(strategyId, countsInNav);
     }
 
     function getStrategyIds() external view returns (uint256[] memory ids) {
@@ -427,12 +428,17 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         paused = false;
     }
 
-    function _loop(uint256 amount, uint256 strategyId) internal {
+    function _loop(
+        uint256 amount,
+        uint256 strategyId,
+        IPendleRouter.TokenInput[] calldata routes,
+        uint256 routeIndex
+    ) internal returns (uint256 routesUsed) {
         Strategy storage strategy = strategies[strategyId];
         if (address(lendingRouter) == address(0)) revert InvalidParams();
         if (strategy.pendleMarket == address(0)) revert NoMarketSet();
 
-        uint256 ptAmount = _swapTokenToPt(usdc, amount, strategy.pendleMarket);
+        uint256 ptAmount = _swapTokenToPt(usdc, amount, strategy, routes, routeIndex++);
 
         SafeTransferLib.safeApproveWithRetry(strategy.pt, address(lendingRouter), ptAmount);
         lendingRouter.supply(strategyId, strategy.venue, strategy.lendingMarket, strategy.pt, ptAmount);
@@ -456,7 +462,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             lendingRouter.borrow(strategyId, strategy.venue, strategy.lendingMarket, strategy.borrowAsset, borrowAmt);
             accountedDebt[strategyId] += borrowAmt;
 
-            uint256 morePt = _swapTokenToPt(strategy.borrowAsset, borrowAmt, strategy.pendleMarket);
+            uint256 morePt = _swapTokenToPt(strategy.borrowAsset, borrowAmt, strategy, routes, routeIndex++);
             SafeTransferLib.safeApproveWithRetry(strategy.pt, address(lendingRouter), morePt);
             lendingRouter.supply(strategyId, strategy.venue, strategy.lendingMarket, strategy.pt, morePt);
             accountedPtCollateral[strategyId] += morePt;
@@ -471,6 +477,8 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             lendingRouter.getCollateral(strategyId, strategy.venue, strategy.lendingMarket, strategy.pt),
             lendingRouter.getDebt(strategyId, strategy.venue, strategy.lendingMarket, strategy.borrowAsset)
         );
+
+        return routeIndex;
     }
 
     function _deloop(uint256 neededUsdc, uint256 strategyId) internal {
@@ -604,7 +612,11 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         }
     }
 
-    function _deployByWeight(uint256 amount) internal {
+    function _deployByWeight(
+        uint256 amount,
+        IPendleRouter.TokenInput[] calldata routes,
+        uint256 routeIndex
+    ) internal returns (uint256 routesUsed) {
         uint256 deployed = 0;
         uint256 lastActive = type(uint256).max;
 
@@ -617,7 +629,7 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
                 lastActive = i;
             }
         }
-        if (lastActive == type(uint256).max) return;
+        if (lastActive == type(uint256).max) return routeIndex;
 
         for (uint256 i = 0; i < strategies.length; i++) {
             Strategy storage strategy = strategies[i];
@@ -630,26 +642,34 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
 
             uint256 share = i == lastActive ? amount - deployed : amount * strategy.weightBps / 10000;
             if (share > 0) {
-                _loop(share, i);
+                routeIndex = _loop(share, i, routes, routeIndex);
                 deployed += share;
             }
         }
+
+        return routeIndex;
     }
 
-    function _swapTokenToPt(address tokenIn, uint256 tokenAmount, address market) internal returns (uint256 ptOut) {
+    function _swapTokenToPt(
+        address tokenIn,
+        uint256 tokenAmount,
+        Strategy storage strategy,
+        IPendleRouter.TokenInput[] calldata routes,
+        uint256 routeIndex
+    ) internal returns (uint256 ptOut) {
+        if (routeIndex >= routes.length) revert InvalidParams();
+
+        IPendleRouter.TokenInput calldata route = routes[routeIndex];
+        if (route.tokenIn != tokenIn || route.tokenMintSy == address(0)) revert InvalidParams();
+
         SafeTransferLib.safeApproveWithRetry(tokenIn, address(pendleRouter), tokenAmount);
 
         IPendleRouter.TokenInput memory input = IPendleRouter.TokenInput({
             tokenIn: tokenIn,
             netTokenIn: tokenAmount,
-            tokenMintSy: tokenIn,
-            pendleSwap: address(0),
-            swapData: IPendleRouter.SwapData({
-                swapType: IPendleRouter.SwapType.NONE,
-                extRouter: address(0),
-                extCalldata: "",
-                needScale: false
-            })
+            tokenMintSy: route.tokenMintSy,
+            pendleSwap: route.pendleSwap,
+            swapData: route.swapData
         });
 
         IPendleRouter.ApproxParams memory guess = IPendleRouter.ApproxParams({
@@ -661,12 +681,11 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
         });
         IPendleRouter.LimitOrderData memory limit;
 
-        (, address pt,) = IPendleMarket(market).readTokens();
-        uint256 ptRate = pendleOracle.getPtToAssetRate(market, twapDuration);
-        uint256 expectedPtOut = _assetToPt(_tokenToAssetAmount(tokenAmount, tokenIn), pt, ptRate);
+        uint256 ptRate = pendleOracle.getPtToAssetRate(strategy.pendleMarket, twapDuration);
+        uint256 expectedPtOut = _assetToPt(_tokenToAssetAmount(tokenAmount, tokenIn), strategy.pt, ptRate);
         uint256 minPtOut = expectedPtOut * (10000 - maxSwapSlippageBps) / 10000;
 
-        (ptOut,,) = pendleRouter.swapExactTokenForPt(address(this), market, minPtOut, guess, input, limit);
+        (ptOut,,) = pendleRouter.swapExactTokenForPt(address(this), strategy.pendleMarket, minPtOut, guess, input, limit);
     }
 
     function _swapPtToToken(uint256 ptAmount, uint256 strategyId, address tokenOut, uint256 expectedAssetOut)
@@ -768,7 +787,6 @@ contract Looped is ILooped, ERC4626, Ownable, ReentrancyGuard {
             })
         );
         isRegisteredStrategy[strategyId] = true;
-        strategyCountsInNav[strategyId] = true;
 
         emit StrategyAdded(strategyId, lendingMarket, pendleMarket);
     }
