@@ -14,25 +14,27 @@ contract LoopedForkTest is Test {
 
 
     address USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-    address AAVEV3Pool = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
     address MAINNET_AAVE_DATA_PROVIDER = 0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3;
+    address MAINNET_MORPHO = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
     address MAINNET_PENDLE_ROUTER = 0x888888888889758F76e7103c6CbF23ABbF58F946;
     address MAINNET_PENDLE_ORACLE = 0x5542be50420E88dd7D5B4a3D488FA6ED82F6DAc2;
-    address MAINNET_PENDLE_MARKET = 0x66Ec657C59cdcaf171aB43B83da3942758bF8a97;
+    address MAINNET_PENDLE_MARKET = 0x4A5067C3fF1abb7449244025B0e37fEAF77D8E3e;
+    bytes32 MAINNET_MORPHO_MARKET_ID =
+        0xf8c5aa31ea6b2a068a9eddb46dd110cae57bf0f12be9583a3f9a818effecba89;
 
     /*//////////////////////////////////////////////////////////////
                                 CONFIG
     //////////////////////////////////////////////////////////////*/
 
-    uint256 USER_STARTING_ASSETS = 25_000e6;
-    uint256 DEPOSIT_ASSETS = 10_000e6;
-    uint256 WITHDRAW_ASSETS = 2_500e6;
+    uint256 USER_STARTING_ASSETS = 1_000e6;
+    uint256 DEPOSIT_ASSETS = 300e6;
+    uint256 WITHDRAW_ASSETS = 100e6;
 
     uint32 TWAP_DURATION = 900;
     uint16 STRATEGY_WEIGHT_BPS = 10_000;
-    uint16 TARGET_LTV_BPS = 7_000;
-    uint8 TARGET_LOOPS = 3;
-    uint256 MIN_HEALTH_FACTOR = 1.15e18;
+    uint16 TARGET_LTV_BPS = 4_000;
+    uint8 TARGET_LOOPS = 1;
+    uint256 MIN_HEALTH_FACTOR = 1.3e18;
     uint8 TOKEN_DISPLAY_DECIMALS = 4;
     uint8 SHARE_DISPLAY_DECIMALS = 12;
 
@@ -112,6 +114,7 @@ contract LoopedForkTest is Test {
         _assertMainnetContract(pendleRouter);
         _assertMainnetContract(pendleOracle);
         _assertMainnetContract(pendleMarket);
+        _assertMainnetContract(MAINNET_MORPHO);
         (address sy, address marketPt,) = IPendleMarket(pendleMarket).readTokens();
         address marketUnderlying = IPendleSy(sy).yieldToken();
         pt = marketPt;
@@ -120,9 +123,10 @@ contract LoopedForkTest is Test {
         vault.setStrategist(strategist);
         vault.setSupportedUnderlying(marketUnderlying, true);
 
-        lendingRouter = address(new LendingRouter(address(vault), MAINNET_AAVE_DATA_PROVIDER, address(0)));
-        lendingMarket = AAVEV3Pool;
-        venue = LendingVenue.Aave;
+        lendingRouter = address(new LendingRouter(address(vault), MAINNET_AAVE_DATA_PROVIDER, MAINNET_MORPHO));
+        lendingMarket = pt;
+        venue = LendingVenue.Morpho;
+        LendingRouter(lendingRouter).configureMorphoMarket(lendingMarket, MAINNET_MORPHO_MARKET_ID);
 
         vault.setLendingRouter(lendingRouter);
         _preparePendleOracle(pendleOracle, pendleMarket);

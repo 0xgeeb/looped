@@ -26,6 +26,7 @@ const normalizeAddress = (value, name) => {
 };
 
 const normalizeBytes = (value, name) => {
+  if (value === "") return "0x";
   if (!/^0x([a-fA-F0-9]{2})*$/.test(value ?? "")) fail(`${name} is not bytes: ${value}`);
   return value;
 };
@@ -73,22 +74,31 @@ const normalizeInput = (input) => {
 };
 
 const bufferedAmountIn = ((BigInt(amountIn) * 102n + 99n) / 100n).toString();
-const response = await fetch(`https://api-v2.pendle.finance/core/v3/sdk/${chainId}/convert`, {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({
+const quote = async (useAggregator) => {
+  const body = {
     receiver,
     slippage: 0.01,
-    enableAggregator: true,
-    aggregators: ["kyberswap", "okx", "paraswap"],
+    enableAggregator: useAggregator,
     inputs: [{ token: tokenIn, amount: bufferedAmountIn }],
     outputs: [tokenOut],
     needScale: true,
     useLimitOrder: false,
-  }),
-});
+  };
+  if (useAggregator) body.aggregators = ["kyberswap"];
 
-const json = await response.json().catch(() => undefined);
+  const response = await fetch(`https://api-v2.pendle.finance/core/v3/sdk/${chainId}/convert`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = await response.json().catch(() => undefined);
+  return { response, json };
+};
+
+let { response, json } = await quote(false);
+if (!response.ok) {
+  ({ response, json } = await quote(true));
+}
 if (!response.ok) fail(`Pendle route API failed ${response.status}: ${JSON.stringify(json)}`);
 
 const route = json?.routes?.[0];
