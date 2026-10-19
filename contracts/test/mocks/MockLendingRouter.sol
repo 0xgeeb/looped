@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import {ILendingRouter, LendingVenue} from "../../src/interfaces/ILendingRouter.sol";
+import {ILendingRouter, ILendingFlashBorrower, LendingVenue} from "../../src/interfaces/ILendingRouter.sol";
 import {MockERC20} from "./MockERC20.sol";
 
 contract MockLendingRouter is ILendingRouter {
@@ -32,8 +32,15 @@ contract MockLendingRouter is ILendingRouter {
     }
 
     function repay(uint256 strategyId, LendingVenue, address, address token, uint256 amount) external onlyVault {
-        MockERC20(token).transferFrom(msg.sender, address(this), amount);
-        debt[strategyId][token] -= amount;
+        uint256 repaid = amount > debt[strategyId][token] ? debt[strategyId][token] : amount;
+        MockERC20(token).transferFrom(msg.sender, address(this), repaid);
+        debt[strategyId][token] -= repaid;
+    }
+
+    function flashLoan(LendingVenue, address token, uint256 amount, bytes calldata data) external onlyVault {
+        MockERC20(token).mint(vault, amount);
+        ILendingFlashBorrower(vault).onLendingFlashLoan(token, amount, data);
+        MockERC20(token).transferFrom(vault, address(this), amount);
     }
 
     function withdraw(uint256 strategyId, LendingVenue, address, address token, uint256 amount) external onlyVault {

@@ -5,7 +5,7 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IAavePool, IAaveDataProvider} from "./interfaces/IAavePool.sol";
 import {IMorpho, IMorphoOracle, MarketParams, Position} from "./interfaces/IMorpho.sol";
-import {ILendingRouter, LendingVenue} from "./interfaces/ILendingRouter.sol";
+import {ILendingRouter, ILendingFlashBorrower, LendingVenue} from "./interfaces/ILendingRouter.sol";
 
 /// @title LendingRouter
 /// @notice Single custody point for vault lending operations across supported venues.
@@ -24,6 +24,7 @@ contract LendingRouter is ILendingRouter, Ownable {
     error OnlyVault();
     error UnsupportedVenue();
     error MarketNotConfigured();
+    error OnlyMorpho();
 
     modifier onlyVault() {
         if (msg.sender != vault) revert OnlyVault();
@@ -92,9 +93,20 @@ contract LendingRouter is ILendingRouter, Ownable {
             return;
         }
         if (venue == LendingVenue.Morpho) {
+            MarketParams memory params = _morphoParams(lendingMarket);
             SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), amount);
             SafeTransferLib.safeApproveWithRetry(token, address(morpho), amount);
-            morpho.repay(_morphoParams(lendingMarket), amount, 0, address(this), "");
+
+            // Repay by shares when `amount` covers the full debt, so no dust shares block a full withdraw.
+            morpho.accrueInterest(params);
+            bytes32 marketId = _morphoMarketId(lendingMarket);
+            uint256 borrowShares = morpho.position(marketId, address(this)).borrowShares;
+            (,, uint128 totalBorrowAssets, uint128 totalBorrowShares,,) = morpho.market(marketId);
+            uint256 debtUp = _mulDivUp(borrowShares, uint256(totalBorrowAssets) + 1, uint256(totalBorrowShares) + 1e6);
+            (uint256 repaid,) = amount >= debtUp
+                ? morpho.repay(params, 0, borrowShares, address(this), "")
+                : morpho.repay(params, amount, 0, address(this), "");
+            if (amount > repaid) SafeTransferLib.safeTransfer(token, vault, amount - repaid);
             return;
         }
         revert UnsupportedVenue();
@@ -114,6 +126,23 @@ contract LendingRouter is ILendingRouter, Ownable {
             return;
         }
         revert UnsupportedVenue();
+    }
+
+    function flashLoan(LendingVenue venue, address token, uint256 amount, bytes calldata data) external onlyVault {
+        if (venue == LendingVenue.Morpho) {
+            morpho.flashLoan(token, amount, abi.encode(token, data));
+            return;
+        }
+        revert UnsupportedVenue();
+    }
+
+    function onMorphoFlashLoan(uint256 assets, bytes calldata data) external {
+        if (msg.sender != address(morpho)) revert OnlyMorpho();
+        (address token, bytes memory vaultData) = abi.decode(data, (address, bytes));
+        SafeTransferLib.safeTransfer(token, vault, assets);
+        ILendingFlashBorrower(vault).onLendingFlashLoan(token, assets, vaultData);
+        SafeTransferLib.safeTransferFrom(token, vault, address(this), assets);
+        SafeTransferLib.safeApproveWithRetry(token, address(morpho), assets);
     }
 
     function getCollateral(uint256, LendingVenue venue, address lendingMarket, address token)
@@ -205,6 +234,10 @@ contract LendingRouter is ILendingRouter, Ownable {
         (,, uint128 totalBorrowAssets, uint128 totalBorrowShares,,) = morpho.market(marketId);
         if (totalBorrowShares == 0) return 0;
         return uint256(pos.borrowShares) * uint256(totalBorrowAssets) / uint256(totalBorrowShares);
+    }
+
+    function _mulDivUp(uint256 x, uint256 y, uint256 d) internal pure returns (uint256) {
+        return (x * y + d - 1) / d;
     }
 
     function _requireAaveReserveActive(address token) internal view {

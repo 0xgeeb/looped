@@ -46,6 +46,10 @@ interface IMorpho {
     function supplyCollateral(MarketParams calldata marketParams, uint256 assets, address onBehalf, bytes calldata data)
         external;
 
+    function flashLoan(address token, uint256 assets, bytes calldata data) external;
+
+    function accrueInterest(MarketParams calldata marketParams) external;
+
     function position(bytes32 id, address user) external view returns (Position memory);
 
     function market(bytes32 id)

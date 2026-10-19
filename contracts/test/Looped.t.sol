@@ -85,6 +85,28 @@ contract LoopedTest is Test {
         }
     }
 
+    function _exitRoute() internal view returns (IPendleRouter.TokenOutput memory) {
+        return IPendleRouter.TokenOutput({
+            tokenOut: address(usdc),
+            minTokenOut: 0,
+            tokenRedeemSy: address(usdc),
+            pendleSwap: address(0),
+            swapData: IPendleRouter.SwapData({
+                swapType: IPendleRouter.SwapType.NONE,
+                extRouter: address(0),
+                extCalldata: "",
+                needScale: false
+            })
+        });
+    }
+
+    function _exitRoutes() internal view returns (IPendleRouter.TokenOutput[] memory routes) {
+        routes = new IPendleRouter.TokenOutput[](4);
+        for (uint256 i = 0; i < routes.length; i++) {
+            routes[i] = _exitRoute();
+        }
+    }
+
     function test_depositLandsIdle() public {
         vm.prank(alice);
         uint256 shares = vault.deposit(1000e6, alice);
@@ -160,7 +182,7 @@ contract LoopedTest is Test {
         uint256 collateralBefore = lendingRouter.collateral(0, address(pt));
 
         vm.prank(alice);
-        vault.withdraw(500e6, alice, alice);
+        vault.withdrawWithRoutes(500e6, alice, alice, _exitRoutes());
 
         uint256 debtAfter = lendingRouter.debt(0, address(usdc));
         uint256 collateralAfter = lendingRouter.collateral(0, address(pt));
@@ -179,7 +201,7 @@ contract LoopedTest is Test {
         uint256 collateralBefore = lendingRouter.collateral(0, address(pt));
 
         vm.prank(alice);
-        vault.withdraw(800e6, alice, alice);
+        vault.withdrawWithRoutes(800e6, alice, alice, _exitRoutes());
 
         uint256 debtAfter = lendingRouter.debt(0, address(usdc));
         assertGt(debtAfter, 0, "debt remains");
@@ -191,7 +213,7 @@ contract LoopedTest is Test {
         _depositAndDeploy(1000e6);
 
         vm.prank(alice);
-        vault.withdraw(800e6, alice, alice);
+        vault.withdrawWithRoutes(800e6, alice, alice, _exitRoutes());
 
         uint256 collateralAfter = lendingRouter.collateral(0, address(pt));
         uint256 debtAfter = lendingRouter.debt(0, address(usdc));
@@ -207,15 +229,16 @@ contract LoopedTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(bytes("slippage"));
-        vault.withdraw(500e6, alice, alice);
+        vault.withdrawWithRoutes(500e6, alice, alice, _exitRoutes());
     }
 
     function test_fullWithdraw() public {
         _depositAndDeploy(1000e6);
         uint256 shares = vault.balanceOf(alice);
 
+        uint256 assets = vault.previewRedeem(shares);
         vm.prank(alice);
-        vault.redeem(shares, alice, alice);
+        vault.withdrawWithRoutes(assets, alice, alice, _exitRoutes());
 
         uint256 fee = 1000e6 * vault.withdrawalFeeBps() / 10000;
         assertApproxEqAbs(usdc.balanceOf(alice), INITIAL_BALANCE - fee, 1, "returned");
@@ -246,8 +269,9 @@ contract LoopedTest is Test {
         vault.deposit(1000e6, alice);
 
         uint256 shares = vault.balanceOf(alice);
+        uint256 assets = vault.previewRedeem(shares);
         vm.prank(alice);
-        vault.redeem(shares, alice, alice);
+        vault.withdrawWithRoutes(assets, alice, alice, _exitRoutes());
 
         assertEq(usdc.balanceOf(alice), INITIAL_BALANCE, "no fee");
     }
@@ -305,7 +329,7 @@ contract LoopedTest is Test {
         uint256 totalBefore = vault.totalAssets();
 
         vm.prank(strategist);
-        vault.rebalance(_routes(16));
+        vault.rebalance(_exitRoutes(), _routes(16));
 
         assertApproxEqAbs(vault.totalAssets(), totalBefore, 1e6, "preserved");
     }
@@ -315,7 +339,7 @@ contract LoopedTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(ILooped.OnlyStrategist.selector);
-        vault.rebalance(_routes(16));
+        vault.rebalance(_exitRoutes(), _routes(16));
     }
 
     function test_deployIdleSplitsAcrossStrategies() public {
@@ -346,7 +370,7 @@ contract LoopedTest is Test {
         vm.warp(block.timestamp + 31 days);
 
         vm.prank(strategist);
-        vault.rolloverToIdle(0);
+        vault.rolloverToIdle(0, _exitRoute());
 
         assertEq(lendingRouter.collateral(0, address(pt)), 0, "collateral");
         assertEq(lendingRouter.debt(0, address(usdc)), 0, "debt");
@@ -354,14 +378,14 @@ contract LoopedTest is Test {
         assertEq(market, address(0), "market cleared");
     }
 
-    function test_rolloverUsesMarketUnderlyingForMaturedRedemption() public {
+    function test_rolloverUsesRouteForMaturedRedemption() public {
         MockERC20 otherUnderlying = new MockERC20("Other USD", "oUSD", 18);
         MockPendleSy otherSy = new MockPendleSy(address(otherUnderlying));
         MockPendleMarket otherMarket =
             new MockPendleMarket(address(otherSy), address(pt), address(yt), block.timestamp + 30 days);
 
         vault.setSupportedUnderlying(address(otherUnderlying), true);
-        vault.rollInto(0, address(otherMarket), _routes(16));
+        vault.rollInto(0, address(otherMarket), _exitRoute(), _routes(16));
 
         vm.prank(alice);
         vault.deposit(1000e6, alice);
@@ -369,8 +393,10 @@ contract LoopedTest is Test {
         vault.deployIdle(_routes(16));
 
         vm.warp(block.timestamp + 31 days);
+        IPendleRouter.TokenOutput memory route = _exitRoute();
+        route.tokenRedeemSy = address(otherUnderlying);
         vm.prank(strategist);
-        vault.rolloverToIdle(0);
+        vault.rolloverToIdle(0, route);
 
         assertEq(pendleRouter.lastTokenRedeemSy(), address(otherUnderlying), "redeem sy");
         assertEq(pendleRouter.lastTokenOut(), address(usdc), "token out");
@@ -381,7 +407,7 @@ contract LoopedTest is Test {
 
         vm.prank(strategist);
         vm.expectRevert(ILooped.NotMatured.selector);
-        vault.rolloverToIdle(0);
+        vault.rolloverToIdle(0, _exitRoute());
     }
 
     function test_rollIntoNewMarketBeforeMaturityRerollsPosition() public {
@@ -389,7 +415,7 @@ contract LoopedTest is Test {
         MockPendleMarket market2 =
             new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp + 60 days);
 
-        vault.rollInto(0, address(market2), _routes(16));
+        vault.rollInto(0, address(market2), _exitRoute(), _routes(16));
 
         (,,,,,,, address market,,,,) = vault.strategies(0);
         assertEq(market, address(market2), "market");
@@ -404,19 +430,19 @@ contract LoopedTest is Test {
             new MockPendleMarket(address(otherSy), address(pt), address(yt), block.timestamp + 30 days);
 
         vm.expectRevert(ILooped.UnsupportedUnderlying.selector);
-        vault.rollInto(0, address(otherMarket), _routes(16));
+        vault.rollInto(0, address(otherMarket), _exitRoute(), _routes(16));
     }
 
     function test_rollIntoRejectsExpiredMarket() public {
         MockPendleMarket expiredMarket = new MockPendleMarket(address(sy), address(pt), address(yt), block.timestamp);
 
         vm.expectRevert(ILooped.InvalidParams.selector);
-        vault.rollInto(0, address(expiredMarket), _routes(16));
+        vault.rollInto(0, address(expiredMarket), _exitRoute(), _routes(16));
     }
 
     function test_rollIntoRejectsMarketWithoutCode() public {
         vm.expectRevert(ILooped.InvalidParams.selector);
-        vault.rollInto(0, makeAddr("notMarket"), _routes(16));
+        vault.rollInto(0, makeAddr("notMarket"), _exitRoute(), _routes(16));
     }
 
     function test_addStrategyRejectsZeroPtMarket() public {
@@ -433,7 +459,7 @@ contract LoopedTest is Test {
         pendleOracle.setOracleState(true, 32, false);
 
         vm.expectRevert(ILooped.OracleNotReady.selector);
-        vault.rollInto(0, address(market2), _routes(16));
+        vault.rollInto(0, address(market2), _exitRoute(), _routes(16));
     }
 
     function test_addStrategyRejectsUnreadyOracle() public {
@@ -448,7 +474,7 @@ contract LoopedTest is Test {
     function test_emergencyDeleverage() public {
         _depositAndDeploy(1000e6);
 
-        vault.emergencyDeleverage();
+        vault.emergencyDeleverage(_exitRoutes());
 
         assertTrue(vault.paused(), "paused");
         assertEq(lendingRouter.debt(0, address(usdc)), 0, "debt");
@@ -456,7 +482,7 @@ contract LoopedTest is Test {
     }
 
     function test_pausedBlocksDeposits() public {
-        vault.emergencyDeleverage();
+        vault.emergencyDeleverage(_exitRoutes());
 
         vm.prank(alice);
         vm.expectRevert(ILooped.Paused.selector);
@@ -464,7 +490,7 @@ contract LoopedTest is Test {
     }
 
     function test_unpause() public {
-        vault.emergencyDeleverage();
+        vault.emergencyDeleverage(_exitRoutes());
         vault.unpause();
         assertFalse(vault.paused(), "unpaused");
     }

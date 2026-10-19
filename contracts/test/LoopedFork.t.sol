@@ -18,9 +18,9 @@ contract LoopedForkTest is Test {
     address MAINNET_MORPHO = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
     address MAINNET_PENDLE_ROUTER = 0x888888888889758F76e7103c6CbF23ABbF58F946;
     address MAINNET_PENDLE_ORACLE = 0x5542be50420E88dd7D5B4a3D488FA6ED82F6DAc2;
-    address MAINNET_PENDLE_MARKET = 0x4A5067C3fF1abb7449244025B0e37fEAF77D8E3e;
+    address MAINNET_PENDLE_MARKET = 0x13285bCbc27F92b47B4EDB99D744C07B48C977c0;
     bytes32 MAINNET_MORPHO_MARKET_ID =
-        0xf8c5aa31ea6b2a068a9eddb46dd110cae57bf0f12be9583a3f9a818effecba89;
+        0x1e9d614631a7df0ec07fb05b2c8cb2491575fd1a63a33bf187a6afb295a4fc64;
 
     /*//////////////////////////////////////////////////////////////
                                 CONFIG
@@ -82,19 +82,30 @@ contract LoopedForkTest is Test {
         _logState("after deposit");
 
         vm.prank(strategist);
-        vault.deployIdle(_routes(16));
+        vault.deployIdle(_routes(_deployableEstimate()));
         _logState("after deployIdle");
 
-        // vm.prank(user);
-        // uint256 burnedShares = vault.withdraw(WITHDRAW_ASSETS, user, user);
+        IPendleRouter.TokenOutput[] memory withdrawRoutes = _exitRoutes(vault.previewExit(WITHDRAW_ASSETS));
+        uint256 userAssetsBefore = ERC20(asset).balanceOf(user);
+        vm.prank(user);
+        uint256 burnedShares = vault.withdrawWithRoutes(WITHDRAW_ASSETS, user, user, withdrawRoutes);
+        assertEq(ERC20(asset).balanceOf(user) - userAssetsBefore, WITHDRAW_ASSETS, "withdrawn");
 
-        // console2.log("\nuser withdrew assets", _formatToken(WITHDRAW_ASSETS, assetDecimals, assetSymbol));
-        // console2.log("shares burned", _formatShares(burnedShares));
-        // _logState("after withdraw");
+        console2.log("\nuser withdrew assets", _formatToken(WITHDRAW_ASSETS, assetDecimals, assetSymbol));
+        console2.log("shares burned", _formatShares(burnedShares));
+        _logState("after withdraw");
 
-        // vm.prank(strategist);
-        // vault.rebalance(_routes(16));
-        // _logState("after rebalance");
+        IPendleRouter.TokenOutput[] memory exitRoutes = _exitRoutes(vault.previewExit(type(uint256).max));
+        IPendleRouter.TokenInput[] memory entryRoutes = _routes(_deployableEstimate());
+        uint256 totalBefore = vault.totalAssets();
+        vm.prank(strategist);
+        vault.rebalance(exitRoutes, entryRoutes);
+        _logState("after rebalance");
+
+        (uint256 collateral, uint256 debt,) = vault.getStrategyPosition(0);
+        assertGt(collateral, 0, "relooped collateral");
+        assertGt(debt, 0, "relooped debt");
+        assertApproxEqRel(vault.totalAssets(), totalBefore, 0.01e18, "rebalance keeps assets");
     }
 
     function _deploy() internal {
@@ -160,16 +171,41 @@ contract LoopedForkTest is Test {
         assertGt(target.code.length, 0, "expected mainnet contract");
     }
 
-    function _routes(uint256 count) internal returns (IPendleRouter.TokenInput[] memory routes) {
+    function _deployableEstimate() internal view returns (uint256) {
+        uint256 total = vault.totalAssets();
+        return total - (total * vault.targetBuffer() / 10000);
+    }
+
+    function _exitRoutes(uint256[] memory ptAmounts) internal returns (IPendleRouter.TokenOutput[] memory routes) {
+        string memory amounts = "";
+        for (uint256 i = 0; i < ptAmounts.length; i++) {
+            amounts = string.concat(amounts, i == 0 ? "" : ",", vm.toString(ptAmounts[i]));
+        }
+        console2.log("exit pt amounts", amounts);
+
         string[] memory command = new string[](8);
+        command[0] = "node";
+        command[1] = "scripts/pendle-route.mjs";
+        command[2] = "exit";
+        command[3] = vm.toString(block.chainid);
+        command[4] = vm.toString(pt);
+        command[5] = vm.toString(asset);
+        command[6] = vm.toString(address(vault));
+        command[7] = amounts;
+        routes = abi.decode(vm.ffi(command), (IPendleRouter.TokenOutput[]));
+    }
+
+    function _routes(uint256 amount) internal returns (IPendleRouter.TokenInput[] memory routes) {
+        string[] memory command = new string[](9);
         command[0] = "node";
         command[1] = "scripts/pendle-route.mjs";
         command[2] = vm.toString(block.chainid);
         command[3] = vm.toString(borrowAsset);
         command[4] = vm.toString(pt);
-        command[5] = vm.toString(DEPOSIT_ASSETS - (DEPOSIT_ASSETS * vault.targetBuffer() / 10000));
+        command[5] = vm.toString(amount);
         command[6] = vm.toString(address(vault));
-        command[7] = vm.toString(count);
+        command[7] = vm.toString(TARGET_LOOPS);
+        command[8] = vm.toString(TARGET_LTV_BPS);
         routes = abi.decode(vm.ffi(command), (IPendleRouter.TokenInput[]));
     }
 
